@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="uz">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calibri</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- External Libraries for Premium Reports -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <!-- Firebase SDK for Cloud Sync -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+</head>
+
+<body>
+    <!-- Hidden Canvas for Excel Charts -->
+    <canvas id="exportChartCanvas" style="display:none;" width="600" height="400"></canvas>
+    <div class="dashboard-container">
+        <header>
+            <div class="title-group">
+                <h1>Calibri : Kunlik Atchot</h1>
+                <p class="header-date" id="currentDateDisplay">Bugun: 11.02.2026</p>
+            </div>
+            <div class="header-actions" style="display: flex; gap: 0.75rem; align-items: center;">
+                <div class="history-menu">
+                    <select id="historyDatePicker" class="history-select" onchange="filterHistoryByDate(this.value)">
+                        <option value="today">Bugun</option>
+                        <!-- Past dates will be added here -->
+                    </select>
+                </div>
+                <div id="syncStatus"
+                    style="font-size: 0.7rem; color: var(--accent-emerald); opacity: 0.8; display: flex; align-items: center; gap: 4px;">
+                    <span
+                        style="width: 8px; height: 8px; background: var(--accent-emerald); border-radius: 50%;"></span>
+                    Bulut bilan ulangan
+                </div>
+                <button class="secondary-btn" onclick="exportToExcel()">Excel (XLSX) Yuklash</button>
+            </div>
+        </header>
+
+        <section class="stats-grid">
+            <div class="glass-card stat-card">
+                <span class="stat-label">Foyda Balans</span>
+                <span class="stat-value" id="todayProfit">0 So'm</span>
+            </div>
+            <div class="glass-card stat-card">
+                <span class="stat-label">Bugungi Sotuv</span>
+                <span class="stat-value" id="todaySalesCount">0 dona</span>
+            </div>
+            <div class="glass-card stat-card">
+                <span class="stat-label">Bugungi Rasxod</span>
+                <span class="stat-value" id="todayExpense">0 So'm</span>
+            </div>
+            <div class="glass-card stat-card">
+                <span class="stat-label">Sof Foyda</span>
+                <span class="stat-value" id="avgMargin">0 So'm</span>
+            </div>
+        </section>
+
+        <div class="nav-buttons">
+            <button class="btn-thin active" onclick="showView('production', this)">Ishlab Chiqarish</button>
+            <button class="btn-thin" onclick="showView('sales', this)">Sotuv</button>
+            <button class="btn-thin" onclick="showView('salaries', this)">Oyliklar</button>
+            <button class="btn-thin" onclick="showView('sklad', this)">Sklad</button>
+            <button class="btn-thin" onclick="showView('tarix', this)">Tarix</button>
+        </div>
+
+        <main class="main-content">
+            <div class="form-container">
+                <!-- Production Form -->
+                <div class="glass-card" id="productionView">
+                    <h3 style="margin-bottom: 1.25rem;">Yangi Ishlab Chiqarish</h3>
+
+                    <div class="form-row">
+                        <div class="input-group">
+                            <label>Kiyim Nomi</label>
+                            <input type="text" id="prodName" placeholder="Masalan: Oq Futbolka">
+                        </div>
+                        <div class="input-group">
+                            <label>Jami Soni (Dona)</label>
+                            <input type="number" id="prodTotalQty" placeholder="0">
+                        </div>
+                    </div>
+
+                    <!-- Materiallar (Multi) -->
+                    <div style="margin-bottom: 2rem;">
+                        <h4 style="font-size: 0.9rem; margin-bottom: 0.75rem;">Mato va Materiallar</h4>
+                        <div id="materialRowsContainer"></div>
+                        <button class="btn-thin" style="padding: 0.3rem 0.8rem;" onclick="addMaterialRow()">+ Mato
+                            Qo'shish</button>
+                    </div>
+
+                    <!-- Ishchilar (Multi) -->
+                    <div style="border-top: 1px solid var(--glass-border); padding-top: 1.5rem;">
+                        <h4 style="margin-bottom: 1rem; font-size: 0.9rem; color: var(--accent-blue);">Ishchi Hisobi
+                        </h4>
+                        <div id="workerRowsContainer"></div>
+                        <button class="btn-thin" style="padding: 0.3rem 0.8rem;" onclick="addWorkerRow()">+ Ishchi
+                            Qo'shish</button>
+                    </div>
+
+                    <button class="primary-btn" onclick="submitProduction()">Ishni Yakunlash ва Saqlash</button>
+                </div>
+
+                <!-- Sales Form -->
+                <div class="glass-card" id="salesView" style="display: none;">
+                    <h3 style="margin-bottom: 1.25rem;">Sotuvni Qayd Etish</h3>
+                    <div class="form-row">
+                        <div class="input-group">
+                            <label>Mahsulot</label>
+                            <select id="saleProduct" style="background: transparent;">
+                                <!-- Dynamic -->
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Soni</label>
+                            <input type="number" id="saleQty" placeholder="0">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="input-group">
+                            <label>Sotuv Narxi (1 dona üçün)</label>
+                            <input type="number" id="salePrice" placeholder="0 So'm">
+                        </div>
+                    </div>
+                    <button class="primary-btn" onclick="submitSale()">Sotuvni Bazaga Qo'shish</button>
+                </div>
+
+                <!-- Salaries View -->
+                <div class="glass-card" id="salariesView" style="display: none;">
+                    <h3 style="margin-bottom: 1.25rem;">Ishchilar Maoshi</h3>
+                    <div id="dailySalariesList">
+                        <!-- List of workers and their total daily pay -->
+                    </div>
+                </div>
+
+                <!-- Sklad View (Renamed from Inventory) -->
+                <div class="glass-card" id="skladView" style="display: none;">
+                    <div class="sklad-header">
+                        <h3>Sklad (Ombor)</h3>
+                        <div class="add-product-btn" onclick="openAddModal()">+</div>
+                    </div>
+
+                    <!-- Universal Add Form (Hidden initially) -->
+                    <div id="universalAddForm"
+                        style="display: none; margin-bottom: 2rem; border: 1px solid var(--accent-blue); padding: 1.25rem; border-radius: 1rem; background: rgba(59, 130, 246, 0.05);">
+                        <h4 style="margin-bottom: 1rem;">Yangi Tovar Qo'shish</h4>
+                        <div class="form-row">
+                            <div class="input-group">
+                                <label>Turi</label>
+                                <select id="uType">
+                                    <option value="product">Tayyor Kiyim</option>
+                                    <option value="material">Mato</option>
+                                    <option value="detail">Detal (Ip, Zamok...)</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>Nomi</label>
+                                <input type="text" id="uName" placeholder="Nomi...">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="input-group">
+                                <label>Miqdori</label>
+                                <input type="number" id="uQty" placeholder="0">
+                            </div>
+                            <div class="input-group">
+                                <label>Birlik Narxi</label>
+                                <input type="number" id="uPrice" placeholder="0 So'm">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                            <button class="primary-btn" style="margin-top: 0;" onclick="submitUniversalAdd()">Bazaga
+                                Qo'shish</button>
+                            <button class="secondary-btn"
+                                onclick="document.getElementById('universalAddForm').style.display='none'">Bekor
+                                Qilish</button>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem;">
+                        <button class="btn-thin active" onclick="setInventoryTab('ready', this)">Kiyimlar</button>
+                        <button class="btn-thin" onclick="setInventoryTab('materials', this)">Materiallar</button>
+                    </div>
+                    <div class="inventory-list" id="sidebarList"></div>
+                </div>
+
+                <!-- Tarix View -->
+                <div class="glass-card" id="tarixView" style="display: none;">
+                    <h3 style="margin-bottom: 1.25rem;">Amallar Tarixi</h3>
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem;">
+                        <button class="btn-thin active" onclick="setHistoryTab('prod_hist', this)">Ishlab
+                            Chiqarish</button>
+                        <button class="btn-thin" onclick="setHistoryTab('sale_hist', this)">Sotuvlar</button>
+                    </div>
+                    <div id="historyDetailedList" class="history-container">
+                        <!-- History cards injected here -->
+                    </div>
+                </div>
+            </div>
+
+            <aside class="inventory-section" id="reportSidebar">
+                <div class="glass-card" style="padding: 1.25rem;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <h3 style="font-size: 1.1rem;">Bugungi Hisobot</h3>
+                    </div>
+
+                    <div class="report-grid">
+                        <div class="report-section">
+                            <h4>⚙️ Ishlab Chiqarish</h4>
+                            <div id="productionReportItems" class="report-list"></div>
+                        </div>
+
+                        <div class="report-section">
+                            <h4>💰 Sotuvlar</h4>
+                            <div id="salesReportItems" class="report-list"></div>
+                        </div>
+
+                        <div class="report-section">
+                            <h4>👷 Maosh To'lovi</h4>
+                            <div id="salariesBriefReport" class="report-list"></div>
+                        </div>
+
+                        <div class="report-section total-section">
+                            <div class="total-row"><span>Kirim</span> <span id="sideRevenue" class="positive">0</span>
+                            </div>
+                            <div class="total-row"><span>Chiqim</span> <span id="sideExpense" class="negative">0</span>
+                            </div>
+                            <div class="total-row main-total"><span>JAMI BALANS</span> <span id="sideProfit">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
