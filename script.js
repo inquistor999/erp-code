@@ -35,17 +35,25 @@ function getTodayStr() {
 }
 
 // Persistence (Transition from Local to Cloud)
+let isInitialLoad = true;
+
 dbRef.on('value', (snapshot) => {
     const data = snapshot.val();
     if (data) {
         state = data;
+        // Muhim: filterDate har doim bugun bo'lishi kerak yoki saqlangan sana
         if (!state.filterDate) state.filterDate = getTodayStr();
         updateUI();
         console.log("Cloud Data Synced ✅");
+    } else if (isInitialLoad) {
+        // Agar baza bo'sh bo'lsa, hozirgi default state-ni saqlaymiz (faqat birinchi marta)
+        console.log("Database is empty, initializing with defaults...");
+        save();
     }
+    isInitialLoad = false;
 });
 
-// Sync Status Indicator
+// Sync Status Indicator & Error Handling
 db.ref(".info/connected").on("value", (snap) => {
     const el = document.getElementById('syncStatus');
     if (!el) return;
@@ -53,17 +61,24 @@ db.ref(".info/connected").on("value", (snap) => {
         el.innerHTML = '<span style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></span> Bulut bilan ulangan';
         el.style.color = '#10b981';
     } else {
-        el.innerHTML = '<span style="width: 8px; height: 8px; background: #ef4444; border-radius: 50%;"></span> Tarmoq uzildi...';
+        el.innerHTML = '<span style="width: 8px; height: 8px; background: #ef4444; border-radius: 50%;"></span> Tarmoq uzildi yoki ulanish kutilmoqda...';
         el.style.color = '#ef4444';
     }
 });
 
 function save() {
+    // Agar dastur hali yuklanmagan bo'lsa saqlamaymiz (ma'lumot o'chib ketishidan himoya)
+    if (isInitialLoad && !dbRef) return;
+
     dbRef.set(state).then(() => {
         console.log("Data Saved to Cloud ☁️");
     }).catch(err => {
         console.error("Cloud Save Error:", err);
-        alert("Saqlashda xatolik yuz berdi! Internetni tekshiring.");
+        if (err.code === 'PERMISSION_DENIED') {
+            alert("Xato: Firebase Rules (Qoidalar) qismida .read va .write ni 'true' qilishingiz kerak!");
+        } else {
+            alert("Saqlashda xatolik: " + err.message);
+        }
     });
 }
 
