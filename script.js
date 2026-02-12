@@ -16,7 +16,7 @@ const db = firebase.database();
 const dbRef = db.ref('erp_data');
 
 // --- Advanced State Management ---
-let state = {
+const DEFAULT_STATE = {
     materials: [
         { id: 'm1', name: 'Paxta', stock: 100, unit: 'm', costPerUnit: 15000 },
         { id: 'm2', name: 'Ipak', stock: 50, unit: 'm', costPerUnit: 45000 }
@@ -27,8 +27,13 @@ let state = {
     totalBalance: 0,
     currentInventoryTab: 'ready',
     currentHistoryTab: 'prod_hist',
-    filterDate: getTodayStr()
+    filterDate: ""
 };
+
+// Start with LocalStorage or Default
+let localData = localStorage.getItem('calibri_erp_state');
+let state = localData ? JSON.parse(localData) : JSON.parse(JSON.stringify(DEFAULT_STATE));
+if (!state.filterDate) state.filterDate = getTodayStr();
 
 function getTodayStr() {
     const d = new Date();
@@ -41,24 +46,27 @@ let isSynced = false;
 dbRef.on('value', (snapshot) => {
     const data = snapshot.val();
     if (data) {
-        // Ma'lumot kelsa, uni local state bilan birlashtiramiz
-        // Lekin filterDate hozirgi tanlangan bo'lib qolishi kerak (agar user o'zgartirgan bo'lsa)
+        // Cloud data received
         const currentFilterDate = state.filterDate || getTodayStr();
+
+        // Merge strategy: update state but keep current filter date
         state = data;
         state.filterDate = currentFilterDate;
 
         if (!state.history) state.history = {};
         if (!state.pendingWork) state.pendingWork = [];
 
-        if (!state.history[state.filterDate]) {
-            state.history[state.filterDate] = { production: [], sales: [] };
-        }
+        // Save to local storage for consistency
+        localStorage.setItem('calibri_erp_state', JSON.stringify(state));
 
         updateUI();
         console.log("Cloud Data Synced ✅");
     } else {
-        console.log("Database is empty, initializing...");
-        save();
+        console.log("Database is empty or first time sync.");
+        // If local state exists, we should push it to cloud
+        if (state.history && Object.keys(state.history).length > 0) {
+            save();
+        }
     }
     isSynced = true;
     const syncEl = document.getElementById('syncStatus');
@@ -69,18 +77,17 @@ dbRef.on('value', (snapshot) => {
 });
 
 function save() {
+    // ALWAYS save to LocalStorage immediately
+    localStorage.setItem('calibri_erp_state', JSON.stringify(state));
+
+    // Then try saving to Firebase (if synced/connected)
     if (!isSynced) return;
 
-    // Firebase qabul qilmaydigan qiymatlarni tozalash
     const cleanedState = JSON.parse(JSON.stringify(state));
-
     dbRef.set(cleanedState).then(() => {
         console.log("Data Saved to Cloud ☁️");
     }).catch(err => {
         console.error("Cloud Save Error:", err);
-        if (err.code === 'PERMISSION_DENIED') {
-            alert("Xato: Firebase Rules (Qoidalar) qismida .read va .write ni 'true' qilishingiz kerak!");
-        }
     });
 }
 
