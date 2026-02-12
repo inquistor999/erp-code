@@ -23,6 +23,7 @@ let state = {
     ],
     products: [],
     history: {},
+    pendingWork: [],
     totalBalance: 0,
     currentInventoryTab: 'ready',
     currentHistoryTab: 'prod_hist',
@@ -35,51 +36,112 @@ function getTodayStr() {
 }
 
 // Persistence (Transition from Local to Cloud)
-let isInitialLoad = true;
+let isSynced = false;
 
 dbRef.on('value', (snapshot) => {
     const data = snapshot.val();
     if (data) {
+        // Ma'lumot kelsa, uni local state bilan birlashtiramiz
+        // Lekin filterDate hozirgi tanlangan bo'lib qolishi kerak (agar user o'zgartirgan bo'lsa)
+        const currentFilterDate = state.filterDate || getTodayStr();
         state = data;
-        // Muhim: filterDate har doim bugun bo'lishi kerak yoki saqlangan sana
-        if (!state.filterDate) state.filterDate = getTodayStr();
+        state.filterDate = currentFilterDate;
+
+        if (!state.history) state.history = {};
+        if (!state.pendingWork) state.pendingWork = [];
+
+        if (!state.history[state.filterDate]) {
+            state.history[state.filterDate] = { production: [], sales: [] };
+        }
+
         updateUI();
         console.log("Cloud Data Synced ✅");
-    } else if (isInitialLoad) {
-        // Agar baza bo'sh bo'lsa, hozirgi default state-ni saqlaymiz (faqat birinchi marta)
-        console.log("Database is empty, initializing with defaults...");
+    } else {
+        console.log("Database is empty, initializing...");
         save();
     }
-    isInitialLoad = false;
-});
-
-// Sync Status Indicator & Error Handling
-db.ref(".info/connected").on("value", (snap) => {
-    const el = document.getElementById('syncStatus');
-    if (!el) return;
-    if (snap.val() === true) {
-        el.innerHTML = '<span style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></span> Bulut bilan ulangan';
-        el.style.color = '#10b981';
-    } else {
-        el.innerHTML = '<span style="width: 8px; height: 8px; background: #ef4444; border-radius: 50%;"></span> Tarmoq uzildi yoki ulanish kutilmoqda...';
-        el.style.color = '#ef4444';
+    isSynced = true;
+    const syncEl = document.getElementById('syncStatus');
+    if (syncEl) {
+        syncEl.innerHTML = '<span style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></span> Bulut bilan ulangan';
+        syncEl.style.color = '#10b981';
     }
 });
 
 function save() {
-    // Agar dastur hali yuklanmagan bo'lsa saqlamaymiz (ma'lumot o'chib ketishidan himoya)
-    if (isInitialLoad && !dbRef) return;
+    if (!isSynced) return;
 
-    dbRef.set(state).then(() => {
+    // Firebase qabul qilmaydigan qiymatlarni tozalash
+    const cleanedState = JSON.parse(JSON.stringify(state));
+
+    dbRef.set(cleanedState).then(() => {
         console.log("Data Saved to Cloud ☁️");
     }).catch(err => {
         console.error("Cloud Save Error:", err);
         if (err.code === 'PERMISSION_DENIED') {
             alert("Xato: Firebase Rules (Qoidalar) qismida .read va .write ni 'true' qilishingiz kerak!");
-        } else {
-            alert("Saqlashda xatolik: " + err.message);
         }
     });
+}
+
+function addNewDate() {
+    const newDate = prompt("Yangi sana kiriting (Format: DD.MM.YYYY)\nMasalan: 03.03.2025", getTodayStr());
+    if (!newDate) return;
+
+    // Format tekshirish (XX.XX.XXXX)
+    const regex = /^\d{2}\.\d{2}\.\d{4}$/;
+    if (!regex.test(newDate)) return alert("Sana formati noto'g'ri! (DD.MM.YYYY)");
+
+    if (!state.history[newDate]) {
+        state.history[newDate] = { production: [], sales: [] };
+    }
+
+    state.filterDate = newDate;
+    updateUI();
+    save();
+}
+
+function openPendingModal() {
+    document.getElementById('pendingAddForm').style.display = 'flex';
+}
+
+function submitPendingWork() {
+    const workerName = document.getElementById('pWorkerName').value.trim();
+    const itemName = document.getElementById('pItemName').value.trim();
+    const qty = parseInt(document.getElementById('pQty').value);
+
+    if (!workerName || !itemName || isNaN(qty)) return alert("Ma'lumotlarni to'ldiring!");
+
+    state.pendingWork.push({
+        id: Date.now(),
+        workerName,
+        itemName,
+        qty,
+        createdAt: new Date().toISOString()
+    });
+
+    document.getElementById('pendingAddForm').style.display = 'none';
+    // Clear inputs
+    document.getElementById('pWorkerName').value = '';
+    document.getElementById('pItemName').value = '';
+    document.getElementById('pQty').value = '';
+
+    updateUI(); // Instant update
+    save();
+}
+
+function deletePendingWork(id) {
+    state.pendingWork = state.pendingWork.filter(p => p.id !== id);
+    updateUI(); // Instant update
+    save();
+}
+
+function calculateDaysPassed(createdAt) {
+    const start = new Date(createdAt);
+    const today = new Date();
+    const diffTime = Math.abs(today - start);
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
 }
 
 // --- Navigation ---
@@ -88,7 +150,7 @@ function showView(viewId, btn) {
     document.querySelectorAll('.nav-buttons .btn-thin').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
 
-    const views = ['productionView', 'salesView', 'salariesView', 'skladView', 'tarixView'];
+    const views = ['productionView', 'salesView', 'salariesView', 'skladView', 'ojidaniyaView', 'tarixView'];
     views.forEach(v => {
         const el = document.getElementById(v);
         if (el) el.style.display = (v === viewId + 'View') ? 'block' : 'none';
@@ -181,30 +243,46 @@ function deleteSkladItem(type, index) {
         state.products.splice(index, 1);
     }
 
+    updateUI(); // Instant update
     save();
 }
 
 function submitUniversalAdd() {
     const type = document.getElementById('uType').value;
-    const name = document.getElementById('uName').value;
-    const qty = parseFloat(document.getElementById('uQty').value);
-    const price = parseInt(document.getElementById('uPrice').value);
+    const name = document.getElementById('uName').value.trim();
+    const qty = parseFloat(document.getElementById('uQty').value) || 0;
+    const price = parseInt(document.getElementById('uPrice').value) || 0;
 
-    if (!name || isNaN(qty)) return alert("Ma'lumotlar to'liq emas!");
+    if (!name || isNaN(qty)) return alert("Ism va miqdorni kiriting!");
 
-    if (type === 'material') {
+    if (type === 'material' || type === 'detail') {
         let mat = state.materials.find(m => m.name.toLowerCase() === name.toLowerCase());
-        if (mat) { mat.stock += qty; mat.costPerUnit = price; }
-        else state.materials.push({ id: 'm' + Date.now(), name, stock: qty, unit: 'm', costPerUnit: price });
+        if (mat) {
+            mat.stock += qty;
+            mat.costPerUnit = price;
+        } else {
+            state.materials.push({
+                id: 'm' + Date.now(),
+                name,
+                stock: qty,
+                unit: (type === 'material' ? 'm' : 'dona'),
+                costPerUnit: price
+            });
+        }
     } else if (type === 'product') {
         let prod = state.products.find(p => p.name.toLowerCase() === name.toLowerCase());
-        if (prod) { prod.qty += qty; prod.costPrice = price; }
-        else state.products.push({ name, qty, costPrice: price });
+        if (prod) {
+            prod.qty += qty;
+            prod.costPrice = price;
+        } else {
+            state.products.push({ name, qty, costPrice: price });
+        }
     }
 
     alert("Saqlandi!");
     document.getElementById('universalAddForm').style.display = 'none';
-    resetForms(); // Clear universal add too
+    resetForms();
+    updateUI(); // Instant update
     save();
 }
 
@@ -246,13 +324,16 @@ function submitProduction() {
     }
 
     const totalBatchExp = matTotalCostForBatch + laborTotalCost;
-    const dateStr = getTodayStr();
+    const dateStr = state.filterDate || getTodayStr();
     if (!state.history[dateStr]) state.history[dateStr] = { production: [], sales: [] };
 
     state.history[dateStr].production.push({
+        id: Date.now(), // Unique ID for the production batch
         name: prodName, qty: totalQty, totalExp: totalBatchExp,
         matCost: matTotalCostForBatch, laborCost: laborTotalCost,
-        materials: materialsUsed, workers: workersDone, time: new Date().toLocaleTimeString()
+        materials: materialsUsed,
+        workers: workersDone.map((w, idx) => ({ ...w, id: idx })), // Add internal worker index
+        time: new Date().toLocaleTimeString()
     });
 
     // Update Overall Product Stock
@@ -270,6 +351,7 @@ function submitProduction() {
 
     alert("Saqlandi!");
     resetForms();
+    updateUI(); // Instant update
     save();
 }
 
@@ -286,29 +368,28 @@ function submitSale() {
     const cost = qty * prod.costPrice;
     const profit = rev - cost;
 
-    const dateStr = getTodayStr();
+    const dateStr = state.filterDate || getTodayStr();
     if (!state.history[dateStr]) state.history[dateStr] = { production: [], sales: [] };
     state.history[dateStr].sales.push({ name, qty, price, profit, time: new Date().toLocaleTimeString() });
 
     state.totalBalance += rev;
     alert("Sotuv qayd etildi!");
     resetForms();
+    updateUI(); // Instant update
     save();
 }
 
-function toggleSalaryPayment(workerName, amount) {
+function toggleSalaryPayment(taskId) {
     const dStr = state.filterDate;
     if (!state.history[dStr]) state.history[dStr] = { production: [], sales: [] };
     if (!state.history[dStr].paidWorkers) state.history[dStr].paidWorkers = [];
 
-    if (state.history[dStr].paidWorkers.includes(workerName)) {
-        // Already paid, what if we want to undo?
-        // User didn't specify undo, but let's keep it simple.
+    if (state.history[dStr].paidWorkers.includes(taskId)) {
         return;
     }
 
-    state.history[dStr].paidWorkers.push(workerName);
-    state.totalBalance -= amount;
+    state.history[dStr].paidWorkers.push(taskId);
+    updateUI(); // Instant update
     save();
 }
 
@@ -323,21 +404,23 @@ function updateUI() {
     // Dashboard
     const balEl = document.getElementById('todayProfit');
     if (balEl) {
+        // Balans faqat jami sotuv (revenue) ni ko'rsatadi
         balEl.innerText = state.totalBalance.toLocaleString() + " So'm";
-        balEl.className = 'stat-value ' + (state.totalBalance < 0 ? 'negative' : 'positive');
+        balEl.className = 'stat-value positive'; // Har doim yashil/ijobiy
     }
 
     // Logic for Chiqim (Production Mat Costs + PAID Salaries)
     let dProdMatExp = dayData.production.reduce((a, b) => a + (b.matCost || 0), 0);
-    let salaries = calculateSalaries(dayData);
-    let paidWorkers = dayData.paidWorkers || [];
+    let tasks = calculateSalaries(dayData);
+    let paidTaskIds = dayData.paidWorkers || [];
     let paidSalAmount = 0;
-    Object.keys(salaries).forEach(name => {
-        if (paidWorkers.includes(name)) paidSalAmount += salaries[name].total;
+
+    tasks.forEach(task => {
+        if (paidTaskIds.includes(task.id)) paidSalAmount += task.total;
     });
 
-    let totalWorkerCount = Object.keys(salaries).length;
-    let salaryPercent = totalWorkerCount > 0 ? Math.round((paidWorkers.length / totalWorkerCount) * 100) : 0;
+    let totalTaskCount = tasks.length;
+    let salaryPercent = totalTaskCount > 0 ? Math.round((paidTaskIds.length / totalTaskCount) * 100) : 0;
 
     let dRev = dayData.sales.reduce((a, b) => a + (b.qty * b.price), 0);
     let dTotalExp = dProdMatExp + paidSalAmount;
@@ -375,21 +458,39 @@ function updateUI() {
 
     // Sklad Render
     const skladList = document.getElementById('sidebarList');
+    const skladBanner = document.getElementById('skladTotalValueBanner');
+    const skladTotalValueEl = document.getElementById('skladTotalValue');
+
     if (skladList) {
         if (state.currentInventoryTab === 'ready') {
-            skladList.innerHTML = state.products.map((p, idx) => `
-                <div class="inventory-item">
-                    <span>${p.name} <span class="item-badge ${p.qty > 5 ? 'badge-ok' : 'badge-low'}">${p.qty} dona</span></span>
-                    <button class="delete-icon-btn" onclick="deleteSkladItem('product', ${idx})">🗑️</button>
-                </div>
-            `).join('');
+            let totalSkladValue = 0;
+            skladList.innerHTML = state.products.map((p, idx) => {
+                const itemTotal = p.qty * (p.costPrice || 0);
+                totalSkladValue += itemTotal;
+                return `
+                    <div class="inventory-item">
+                        <div class="inventory-item-details">
+                            <span>${p.name} <span class="item-badge ${p.qty > 5 ? 'badge-ok' : 'badge-low'}">${p.qty} dona</span></span>
+                            <span class="inventory-item-cost">Donasi: ${(p.costPrice || 0).toLocaleString()} | Jami: ${itemTotal.toLocaleString()} So'm</span>
+                        </div>
+                        <button class="delete-icon-btn" onclick="deleteSkladItem('product', ${idx})">🗑️</button>
+                    </div>
+                `;
+            }).join('') || '<p style="text-align:center; color:gray; padding:1rem;">Kiyimlar yo\'q</p>';
+
+            if (skladBanner) {
+                skladBanner.style.display = 'flex';
+                skladTotalValueEl.innerText = totalSkladValue.toLocaleString() + " So'm";
+            }
         } else {
             skladList.innerHTML = state.materials.map((m, idx) => `
                 <div class="inventory-item">
                     <span>${m.name} <span class="item-badge ${m.stock > 10 ? 'badge-ok' : 'badge-low'}">${m.stock} m</span></span>
                     <button class="delete-icon-btn" onclick="deleteSkladItem('material', ${idx})">🗑️</button>
                 </div>
-            `).join('');
+            `).join('') || '<p style="text-align:center; color:gray; padding:1rem;">Materiallar yo\'q</p>';
+
+            if (skladBanner) skladBanner.style.display = 'none';
         }
     }
 
@@ -401,44 +502,85 @@ function updateUI() {
 
     // Workers & History
     renderDailySalaries();
+    renderOjidaniya(); // New
     renderDetailedHistory();
     updateDatePicker();
 }
 
 function calculateSalaries(dayData) {
-    let salaries = {};
-    dayData.production.forEach(row => {
-        row.workers.forEach(w => {
-            if (!salaries[w.name]) salaries[w.name] = { qty: 0, total: 0 };
-            salaries[w.name].qty += w.qty;
-            salaries[w.name].total += w.qty * w.price;
+    let tasks = [];
+    dayData.production.forEach((prod, pIdx) => {
+        prod.workers.forEach((w, wIdx) => {
+            tasks.push({
+                id: `${pIdx}_${wIdx}`,
+                name: w.name,
+                itemName: prod.name,
+                qty: w.qty,
+                total: w.qty * w.price
+            });
         });
     });
-    return salaries;
+    return tasks;
 }
 
 function renderDailySalaries() {
     const dStr = state.filterDate;
     const dayData = state.history[dStr] || { production: [], sales: [] };
     const paidWorkers = dayData.paidWorkers || [];
-    const salaries = calculateSalaries(dayData);
+    const tasks = calculateSalaries(dayData);
 
     const el = document.getElementById('dailySalariesList');
-    if (el) el.innerHTML = Object.keys(salaries).map(name => {
-        const isPaid = paidWorkers.includes(name);
+    if (el) el.innerHTML = tasks.map(task => {
+        const isPaid = paidWorkers.includes(task.id);
         return `
             <div class="salary-item ${isPaid ? 'paid' : ''}">
-                <div class="salary-main">
-                    <h4>${name} ${isPaid ? '✅' : ''}</h4>
-                    <p>Tikkan: ${salaries[name].qty} dona</p>
+                <div class="salary-main" style="flex: 1;">
+                    <h4>${task.name} ${isPaid ? '✅' : ''}</h4>
+                    <p>${task.itemName} (x${task.qty})</p>
                 </div>
                 <div style="display:flex; align-items:center; gap:10px;">
-                    <div class="salary-amount">${salaries[name].total.toLocaleString()} So'm</div>
-                    ${!isPaid ? `<button class="check-btn" onclick="toggleSalaryPayment('${name}', ${salaries[name].total})">✓</button>` : ''}
+                    <div class="salary-amount">${task.total.toLocaleString()} So'm</div>
+                    ${!isPaid ? `<button class="check-btn" onclick="toggleSalaryPayment('${task.id}')">✓</button>` : ''}
                 </div>
             </div>
         `;
     }).join('') || '<p style="text-align:center; color:gray;">Bugun maoshlar yo\'q</p>';
+}
+
+function renderOjidaniya() {
+    const el = document.getElementById('ojidaniyaList');
+    if (!el) return;
+
+    el.innerHTML = state.pendingWork.map(p => {
+        const days = calculateDaysPassed(p.createdAt);
+        return `
+            <div class="ojidaniya-card">
+                <div class="ojidaniya-info">
+                    <h4>${p.workerName}</h4>
+                    <p>${p.itemName} (x${p.qty})</p>
+                </div>
+                <div style="display:flex; align-items:center; gap:20px;">
+                    <div class="ojidaniya-days">
+                        <span class="days-count">${days}</span>
+                        <span class="days-label">kun o'tdi</span>
+                    </div>
+                    <button class="check-btn" onclick="deletePendingWork(${p.id})" title="Bajarildi">✓</button>
+                </div>
+            </div>
+        `;
+    }).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Kutishdagi ishlar hozircha yo\'q</p>';
+
+    // Update Badge
+    const badge = document.getElementById('ojidaniyaBadge');
+    if (badge) {
+        const count = state.pendingWork.length;
+        if (count > 0) {
+            badge.innerText = count;
+            badge.style.display = 'flex';
+        } else {
+            badge.style.display = 'none';
+        }
+    }
 }
 
 function renderDetailedHistory() {
@@ -476,15 +618,41 @@ function renderDetailedHistory() {
 function updateDatePicker() {
     const datePicker = document.getElementById('historyDatePicker');
     if (!datePicker) return;
-    const dates = Object.keys(state.history).sort().reverse();
+
+    // Barcha mavjud sanalarni yig'amiz
+    const historicalDates = Object.keys(state.history || {});
     const today = getTodayStr();
-    let options = `<option value="${today}">Bugun (${today})</option>`;
-    dates.forEach(d => {
-        if (d !== today) options += `<option value="${d}">${d}</option>`;
+
+    // Duplikat bo'lmasligi uchun Set ishlatamiz
+    const allDates = new Set([today, ...historicalDates]);
+    const sortedDates = Array.from(allDates).sort((a, b) => {
+        // Sanalarni solishtirish uchun qismlarga bo'lamiz (DD.MM.YYYY)
+        const [d1, m1, y1] = a.split('.');
+        const [d2, m2, y2] = b.split('.');
+        return new Date(y2, m2 - 1, d2) - new Date(y1, m1 - 1, d1);
     });
+
+    let options = '';
+    sortedDates.forEach(d => {
+        options += `<option value="${d}">${d === today ? 'Bugun (' + d + ')' : d}</option>`;
+    });
+
     datePicker.innerHTML = options;
     datePicker.value = state.filterDate;
 }
+
+// Connection State Listener (Real-time feedback)
+db.ref(".info/connected").on("value", (snap) => {
+    const el = document.getElementById('syncStatus');
+    if (!el) return;
+    if (snap.val() === true) {
+        el.innerHTML = '<span style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></span> Bulut bilan ulangan';
+        el.style.color = '#10b981';
+    } else {
+        el.innerHTML = '<span style="width: 8px; height: 8px; background: #ef4444; border-radius: 50%;"></span> Tarmoq uzildi...';
+        el.style.color = '#ef4444';
+    }
+});
 
 function filterHistoryByDate(val) {
     state.filterDate = val || getTodayStr();
@@ -518,11 +686,11 @@ async function exportToExcel() {
     const dayData = state.history[dStr] || { production: [], sales: [] };
 
     // 1. Calculate Summary for Chart
-    const salaries = calculateSalaries(dayData);
-    const paidWorkers = dayData.paidWorkers || [];
+    const tasks = calculateSalaries(dayData);
+    const paidTaskIds = dayData.paidWorkers || [];
     let paidSalAmount = 0;
-    Object.keys(salaries).forEach(name => {
-        if (paidWorkers.includes(name)) paidSalAmount += salaries[name].total;
+    tasks.forEach(task => {
+        if (paidTaskIds.includes(task.id)) paidSalAmount += task.total;
     });
     const matExp = dayData.production.reduce((a, b) => a + (b.matCost || 0), 0);
     const revenue = dayData.sales.reduce((a, b) => a + (b.qty * b.price), 0);
@@ -566,6 +734,31 @@ async function exportToExcel() {
     workbook.creator = 'Calibri ERP';
     workbook.created = new Date();
 
+    // Helper for Premium Styling
+    const applyPremiumStyle = (sheet) => {
+        sheet.getRow(1).height = 25;
+        sheet.getRow(1).eachCell(cell => {
+            cell.font = { name: 'Segoe UI', bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }; // Deep Navy
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+        });
+
+        // Zebra Striping & Borders
+        sheet.eachRow((row, rowNumber) => {
+            if (rowNumber > 1) {
+                const isEven = rowNumber % 2 === 0;
+                row.eachCell(cell => {
+                    cell.font = { name: 'Segoe UI', size: 10 };
+                    cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+                    if (isEven) {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }; // Very light blue/gray
+                    }
+                });
+            }
+        });
+    };
+
     // --- SHEET 1: DASHBOARD ---
     const dashSheet = workbook.addWorksheet('Dashboard');
     dashSheet.getColumn(2).width = 25;
@@ -593,8 +786,8 @@ async function exportToExcel() {
         const cell2 = r.getCell(3);
 
         if (i === 0) {
-            cell1.fill = cell2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF3B82F6' } };
-            cell1.font = cell2.font = { color: { argb: 'FFFFFFFF' }, bold: true };
+            cell1.fill = cell2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+            cell1.font = cell2.font = { color: { argb: 'FFFFFFFF' }, bold: true, name: 'Segoe UI' };
         } else {
             cell2.numFmt = '#,##0 "So\'m"';
             if (row[0] === 'Sof Foyda') {
@@ -623,14 +816,17 @@ async function exportToExcel() {
         { header: 'Narxi (dona)', key: 'price', width: 20 },
         { header: 'Jami Summa', key: 'total', width: 20 }
     ];
+    const fmt = (val) => Number(val).toLocaleString() + " So'm";
+
     dayData.sales.forEach(s => {
         salesSheet.addRow({
-            time: s.time, name: s.name, qty: s.qty, price: s.price,
-            total: s.qty * s.price
+            time: s.time, name: s.name, qty: s.qty,
+            price: fmt(s.price),
+            total: fmt(s.qty * s.price)
         });
     });
-    salesSheet.getRow(1).font = { bold: true };
-    salesSheet.getColumn(4).numFmt = salesSheet.getColumn(5).numFmt = '#,##0 "So\'m"';
+
+    applyPremiumStyle(salesSheet);
 
     // --- SHEET 3: PRODUCTION ---
     const prodSheet = workbook.addWorksheet('Ishlab Chiqarish');
@@ -644,20 +840,52 @@ async function exportToExcel() {
         { header: 'Jami Xarajat', key: 'total', width: 20 }
     ];
     dayData.production.forEach(p => {
-        const workersNames = (p.workers || []).map(w => `${w.name} (${w.qty})`).join(', ');
-        // Format rate strings with "So'm" for display
-        const ratePerPiece = (p.workers || []).map(w => `${Number(w.price).toLocaleString()} So'm`).join(', ');
+        const workers = p.workers || [];
 
-        prodSheet.addRow({
-            name: p.name, qty: p.qty, mat: p.matCost || 0,
-            workersNames: workersNames,
-            rate: ratePerPiece,
-            labor: p.laborCost || 0, total: p.totalExp
-        });
+        // Helper to format currency strings exactly as requested
+        const fmt = (val) => Number(val).toLocaleString() + " So'm";
+
+        if (workers.length === 0) {
+            prodSheet.addRow({
+                name: p.name,
+                qty: p.qty,
+                mat: fmt(p.matCost || 0),
+                workersNames: "",
+                rate: "",
+                labor: fmt(0),
+                total: fmt(p.totalExp)
+            });
+        } else {
+            workers.forEach((w, idx) => {
+                const laborVal = w.qty * w.price;
+                if (idx === 0) {
+                    // First row: include product info and mat/total খরচ
+                    prodSheet.addRow({
+                        name: p.name,
+                        qty: p.qty,
+                        mat: fmt(p.matCost || 0),
+                        workersNames: `${w.name} (${w.qty})`,
+                        rate: fmt(w.price),
+                        labor: fmt(laborVal),
+                        total: fmt(p.totalExp)
+                    });
+                } else {
+                    // Subsequent rows: only worker specific info
+                    prodSheet.addRow({
+                        name: "",
+                        qty: "",
+                        mat: "",
+                        workersNames: `${w.name} (${w.qty})`,
+                        rate: fmt(w.price),
+                        labor: fmt(laborVal),
+                        total: ""
+                    });
+                }
+            });
+        }
     });
-    prodSheet.getRow(1).font = { bold: true };
-    // Apply number format to numeric columns
-    prodSheet.getColumn(3).numFmt = prodSheet.getColumn(6).numFmt = prodSheet.getColumn(7).numFmt = '#,##0 "So\'m"';
+
+    applyPremiumStyle(prodSheet);
 
     // 4. Save File
     const buffer = await workbook.xlsx.writeBuffer();
