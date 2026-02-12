@@ -40,35 +40,37 @@ function getTodayStr() {
     return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
 }
 
-// Persistence (Transition from Local to Cloud)
+// --- Persistence & Sync Logic ---
 let isSynced = false;
 
+// 1. Load from Cloud (Firebase)
 dbRef.on('value', (snapshot) => {
-    const data = snapshot.val();
-    if (data) {
-        // Cloud data received
-        const currentFilterDate = state.filterDate || getTodayStr();
+    const cloudData = snapshot.val();
+    const currentFilterDate = state.filterDate || getTodayStr();
 
-        // Merge strategy: update state but keep current filter date
-        state = data;
+    if (cloudData) {
+        // We have cloud data -> Use it!
+        state = cloudData;
         state.filterDate = currentFilterDate;
 
+        // Ensure critical arrays exist
         if (!state.history) state.history = {};
         if (!state.pendingWork) state.pendingWork = [];
 
-        // Save to local storage for consistency
+        // Save to local storage for offline support
         localStorage.setItem('calibri_erp_state', JSON.stringify(state));
-
-        updateUI();
-        console.log("Cloud Data Synced ✅");
+        console.log("Cloud Data Synced to Local ✅");
     } else {
-        console.log("Database is empty or first time sync.");
-        // If local state exists, we should push it to cloud
-        if (state.history && Object.keys(state.history).length > 0) {
-            save();
-        }
+        // Cloud is empty -> Push our current (local) state to cloud
+        console.log("Cloud is empty. Pushing local data to cloud...");
+        isSynced = true; // Set true early to allow save()
+        save();
     }
+
     isSynced = true;
+    updateUI();
+
+    // Update Status Badge
     const syncEl = document.getElementById('syncStatus');
     if (syncEl) {
         syncEl.innerHTML = '<span style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></span> Bulut bilan ulangan';
@@ -76,12 +78,16 @@ dbRef.on('value', (snapshot) => {
     }
 });
 
+// 2. Global Save Function
 function save() {
-    // ALWAYS save to LocalStorage immediately
+    // Stage 1: Save to LocalStorage (Instant & Offline)
     localStorage.setItem('calibri_erp_state', JSON.stringify(state));
 
-    // Then try saving to Firebase (if synced/connected)
-    if (!isSynced) return;
+    // Stage 2: Save to Cloud (Firebase)
+    if (!isSynced) {
+        console.warn("Cloud not yet synced. Saving locally only.");
+        return;
+    }
 
     const cleanedState = JSON.parse(JSON.stringify(state));
     dbRef.set(cleanedState).then(() => {
