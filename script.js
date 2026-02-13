@@ -68,10 +68,17 @@ dbRef.on('value', (snapshot) => {
         localStorage.setItem('calibri_erp_state', JSON.stringify(state));
         console.log("Cloud Data Synced to Local ✅");
     } else {
-        // Cloud is empty -> Push our current (local) state to cloud
-        console.log("Cloud is empty. Pushing local data to cloud...");
-        isSynced = true; // Set true early to allow save()
-        save();
+        // Cloud is empty.
+        // CRITICAL (The Law): If we have local data, DO NOT overwrite it with empty cloud data.
+        // Instead, we assume local data is the source of truth for now and push it UP.
+        const hasLocalData = state.history && Object.keys(state.history).length > 0;
+        if (hasLocalData) {
+            console.log("Cloud is empty but local has data. Pushing local data to cloud... (The Law)");
+            isSynced = true;
+            save();
+        } else {
+            console.log("Both Cloud and Local are empty. Ready for new data.");
+        }
     }
 
     isSynced = true;
@@ -194,6 +201,13 @@ function setHistoryTab(tab, btn) {
     state.currentHistoryTab = tab;
     document.querySelectorAll('#tarixView .btn-thin').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
+
+    // Show/Hide Worker Filter
+    const filterContainer = document.getElementById('workerFilterContainer');
+    if (filterContainer) {
+        filterContainer.style.display = (tab === 'worker_hist') ? 'block' : 'none';
+    }
+
     renderDetailedHistory();
 }
 
@@ -480,15 +494,18 @@ function updateUI() {
     document.getElementById('sideExpense').innerText = dTotalExp.toLocaleString();
     document.getElementById('sideProfit').innerText = (dRev - dTotalExp).toLocaleString();
 
-    // Sklad Render
+    // Sklad Render with Search
     const skladList = document.getElementById('sidebarList');
     const skladBanner = document.getElementById('skladTotalValueBanner');
     const skladTotalValueEl = document.getElementById('skladTotalValue');
+    const searchTerm = (document.getElementById('skladSearch')?.value || "").toLowerCase();
 
     if (skladList) {
         if (state.currentInventoryTab === 'ready') {
             let totalSkladValue = 0;
-            skladList.innerHTML = state.products.map((p, idx) => {
+            const filteredProducts = state.products.filter(p => p.name.toLowerCase().includes(searchTerm));
+
+            skladList.innerHTML = filteredProducts.map((p, idx) => {
                 const itemTotal = p.qty * (p.costPrice || 0);
                 totalSkladValue += itemTotal;
                 return `
@@ -500,19 +517,20 @@ function updateUI() {
                         <button class="delete-icon-btn" onclick="deleteSkladItem('product', ${idx})">🗑️</button>
                     </div>
                 `;
-            }).join('') || '<p style="text-align:center; color:gray; padding:1rem;">Kiyimlar yo\'q</p>';
+            }).join('') || '<p style="text-align:center; color:gray; padding:1rem;">Kiyimlar topilmadi</p>';
 
             if (skladBanner) {
                 skladBanner.style.display = 'flex';
                 skladTotalValueEl.innerText = totalSkladValue.toLocaleString() + " So'm";
             }
         } else {
-            skladList.innerHTML = state.materials.map((m, idx) => `
+            const filteredMaterials = state.materials.filter(m => m.name.toLowerCase().includes(searchTerm));
+            skladList.innerHTML = filteredMaterials.map((m, idx) => `
                 <div class="inventory-item">
                     <span>${m.name} <span class="item-badge ${m.stock > 10 ? 'badge-ok' : 'badge-low'}">${m.stock} m</span></span>
                     <button class="delete-icon-btn" onclick="deleteSkladItem('material', ${idx})">🗑️</button>
                 </div>
-            `).join('') || '<p style="text-align:center; color:gray; padding:1rem;">Materiallar yo\'q</p>';
+            `).join('') || '<p style="text-align:center; color:gray; padding:1rem;">Materiallar topilmadi</p>';
 
             if (skladBanner) skladBanner.style.display = 'none';
         }
@@ -625,17 +643,41 @@ function renderDetailedHistory() {
                 </div>
             </div>
         `).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Ishlab chiqarish tarixi bo\'sh</p>';
-    } else {
+    } else if (state.currentHistoryTab === 'sales_hist') {
         container.innerHTML = dayData.sales.map(s => `
             <div class="history-card">
                 <div class="history-header"><h4>${s.name}</h4> <span>${s.time}</span></div>
                 <div class="history-details">
                     <div class="history-sub-item"><span>Sotildi:</span> <b>${s.qty} dona</b></div>
-                    <div class="history-sub-item"><span>Narxi:</span> <b>${s.price.toLocaleString()} So'm</b></div>
+                    <div class="history-sub-item)<span>Narxi:</span> <b>${s.price.toLocaleString()} So'm</b></div>
                     <div class="history-sub-item"><span>Sof foyda:</span> <b style="color:var(--accent-emerald)">${s.profit.toLocaleString()} So'm</b></div>
                 </div>
             </div>
         `).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Sotuvlar tarixi bo\'sh</p>';
+    } else if (state.currentHistoryTab === 'worker_hist') {
+        // Aggregate Worker History for the selected day
+        const workerSearch = (document.getElementById('workerHistorySearch')?.value || "").toLowerCase();
+        const paidWorkers = dayData.paidWorkers || [];
+        const tasks = calculateSalaries(dayData);
+
+        const filteredTasks = tasks.filter(t => t.name.toLowerCase().includes(workerSearch));
+
+        container.innerHTML = filteredTasks.map(t => {
+            const isPaid = paidWorkers.includes(t.id);
+            return `
+                <div class="history-card ${isPaid ? 'paid-border' : ''}">
+                    <div class="history-header">
+                        <h4>${t.name} ${isPaid ? '✅' : '⏳'}</h4>
+                        <span style="color: ${isPaid ? 'var(--accent-emerald)' : '#f59e0b'}">${isPaid ? 'To\'langan' : 'To\'lanmagan'}</span>
+                    </div>
+                    <div class="history-details">
+                        <div class="history-sub-item"><span>Ish:</span> <b>${t.itemName}</b></div>
+                        <div class="history-sub-item"><span>Soni:</span> <b>${t.qty} dona</b></div>
+                        <div class="history-sub-item"><span>Haqqi:</span> <b>${t.total.toLocaleString()} So'm</b></div>
+                    </div>
+                </div>
+            `;
+        }).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Ishchilar faoliyati topilmadi</p>';
     }
 }
 
