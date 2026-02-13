@@ -56,9 +56,26 @@ dbRef.on('value', (snapshot) => {
     const currentFilterDate = state.filterDate || getTodayStr();
 
     if (cloudData) {
-        // We have cloud data -> Use it!
+        // Migration: Convert any old dot-based keys to dash-based
+        if (cloudData.history) {
+            const newHistory = {};
+            Object.keys(cloudData.history).forEach(key => {
+                const newKey = key.replaceAll('.', '-');
+                newHistory[newKey] = cloudData.history[key];
+            });
+            cloudData.history = newHistory;
+        }
+
+        // Migration: Ensure all legacy products/materials have IDs
+        if (cloudData.products) {
+            cloudData.products.forEach((p, idx) => { if (!p.id) p.id = 'p_leg_' + idx + '_' + Date.now(); });
+        }
+        if (cloudData.materials) {
+            cloudData.materials.forEach((m, idx) => { if (!m.id) m.id = 'm_leg_' + idx + '_' + Date.now(); });
+        }
+
         state = cloudData;
-        state.filterDate = currentFilterDate;
+        state.filterDate = currentFilterDate.replaceAll('.', '-');
 
         // Ensure critical arrays exist
         if (!state.history) state.history = {};
@@ -272,13 +289,13 @@ function openAddModal() {
     if (el) el.style.display = 'block';
 }
 
-function deleteSkladItem(type, index) {
-    if (!confirm("Haqiqatdan ham ushbu tovarni bazadan o'chirmoqchimisiz?")) return;
+function deleteSkladItem(type, id) {
+    if (!confirm("Haqiqatdan ham ushbu tovarna bazadan o'chirmoqchimisiz?")) return;
 
     if (type === 'material') {
-        state.materials.splice(index, 1);
+        state.materials = state.materials.filter(m => m.id !== id);
     } else if (type === 'product') {
-        state.products.splice(index, 1);
+        state.products = state.products.filter(p => p.id !== id);
     }
 
     updateUI(); // Instant update
@@ -313,7 +330,7 @@ function submitUniversalAdd() {
             prod.qty += qty;
             prod.costPrice = price;
         } else {
-            state.products.push({ name, qty, costPrice: price });
+            state.products.push({ id: 'p' + Date.now(), name, qty, costPrice: price });
         }
     }
 
@@ -380,7 +397,7 @@ function submitProduction() {
         existing.qty += totalQty;
         existing.costPrice = ((existing.costPrice * (existing.qty - totalQty)) + totalBatchExp) / existing.qty;
     } else {
-        state.products.push({ name: prodName, qty: totalQty, costPrice: totalBatchExp / totalQty });
+        state.products.push({ id: 'p' + Date.now(), name: prodName, qty: totalQty, costPrice: totalBatchExp / totalQty });
     }
 
     // Deduct only material cost from balance initially. 
@@ -505,7 +522,7 @@ function updateUI() {
             let totalSkladValue = 0;
             const filteredProducts = state.products.filter(p => p.name.toLowerCase().includes(searchTerm));
 
-            skladList.innerHTML = filteredProducts.map((p, idx) => {
+            skladList.innerHTML = filteredProducts.map((p) => {
                 const itemTotal = p.qty * (p.costPrice || 0);
                 totalSkladValue += itemTotal;
                 return `
@@ -514,10 +531,10 @@ function updateUI() {
                             <span>${p.name} <span class="item-badge ${p.qty > 5 ? 'badge-ok' : 'badge-low'}">${p.qty} dona</span></span>
                             <span class="inventory-item-cost">Donasi: ${(p.costPrice || 0).toLocaleString()} | Jami: ${itemTotal.toLocaleString()} So'm</span>
                         </div>
-                        <button class="delete-icon-btn" onclick="deleteSkladItem('product', ${idx})">🗑️</button>
+                        <button class="delete-icon-btn" onclick="deleteSkladItem('product', '${p.id}')">🗑️</button>
                     </div>
                 `;
-            }).join('') || '<p style="text-align:center; color:gray; padding:1rem;">Kiyimlar topilmadi</p>';
+            }).join('') || '<p style="text-align:center; color:gray; padding:1rem;">Topilmadi</p>';
 
             if (skladBanner) {
                 skladBanner.style.display = 'flex';
@@ -525,10 +542,10 @@ function updateUI() {
             }
         } else {
             const filteredMaterials = state.materials.filter(m => m.name.toLowerCase().includes(searchTerm));
-            skladList.innerHTML = filteredMaterials.map((m, idx) => `
+            skladList.innerHTML = filteredMaterials.map((m) => `
                 <div class="inventory-item">
                     <span>${m.name} <span class="item-badge ${m.stock > 10 ? 'badge-ok' : 'badge-low'}">${m.stock} m</span></span>
-                    <button class="delete-icon-btn" onclick="deleteSkladItem('material', ${idx})">🗑️</button>
+                    <button class="delete-icon-btn" onclick="deleteSkladItem('material', '${m.id}')">🗑️</button>
                 </div>
             `).join('') || '<p style="text-align:center; color:gray; padding:1rem;">Materiallar topilmadi</p>';
 
