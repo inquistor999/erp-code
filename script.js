@@ -37,7 +37,14 @@ if (!state.filterDate) state.filterDate = getTodayStr();
 
 function getTodayStr() {
     const d = new Date();
-    return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+    // Using dashes (-) for Firebase compatibility (No dots allowed in keys)
+    return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+}
+
+function formatDateForUI(dStr) {
+    if (!dStr) return "";
+    // User wants slashes (/) for display, but we use dashes (-) for the database
+    return dStr.replaceAll('-', '/');
 }
 
 // --- Persistence & Sync Logic ---
@@ -98,18 +105,22 @@ function save() {
 }
 
 function addNewDate() {
-    const newDate = prompt("Yangi sana kiriting (Format: DD.MM.YYYY)\nMasalan: 03.03.2025", getTodayStr());
-    if (!newDate) return;
+    const todayUI = formatDateForUI(getTodayStr());
+    const newDateUI = prompt("Yangi sana kiriting (Format: DD/MM/YYYY)\nMasalan: 03/03/2026", todayUI);
+    if (!newDateUI) return;
 
-    // Format tekshirish (XX.XX.XXXX)
-    const regex = /^\d{2}\.\d{2}\.\d{4}$/;
-    if (!regex.test(newDate)) return alert("Sana formati noto'g'ri! (DD.MM.YYYY)");
+    // Convert UI (/) to DB (-)
+    const newDateDB = newDateUI.replaceAll('/', '-');
 
-    if (!state.history[newDate]) {
-        state.history[newDate] = { production: [], sales: [] };
+    // Format check (XX-XX-XXXX)
+    const regex = /^\d{2}-\d{2}-\d{4}$/;
+    if (!regex.test(newDateDB)) return alert("Sana formati noto'g'ri! (DD/MM/YYYY)");
+
+    if (!state.history[newDateDB]) {
+        state.history[newDateDB] = { production: [], sales: [] };
     }
 
-    state.filterDate = newDate;
+    state.filterDate = newDateDB;
     updateUI();
     save();
 }
@@ -408,9 +419,9 @@ function toggleSalaryPayment(taskId) {
 
 // --- UI Rendering ---
 function updateUI() {
-    const dStr = state.filterDate;
-    const dateDisplay = document.getElementById('currentDateDisplay');
-    if (dateDisplay) dateDisplay.innerText = `Sana: ${dStr}`;
+    const dStr = state.filterDate;    // Display Date
+    const displayDateEl = document.getElementById('currentDateDisplay');
+    if (displayDateEl) displayDateEl.innerText = "Bugun: " + formatDateForUI(state.filterDate);
 
     const dayData = state.history[dStr] || { production: [], sales: [] };
 
@@ -638,16 +649,19 @@ function updateDatePicker() {
 
     // Duplikat bo'lmasligi uchun Set ishlatamiz
     const allDates = new Set([today, ...historicalDates]);
-    const sortedDates = Array.from(allDates).sort((a, b) => {
-        // Sanalarni solishtirish uchun qismlarga bo'lamiz (DD.MM.YYYY)
-        const [d1, m1, y1] = a.split('.');
-        const [d2, m2, y2] = b.split('.');
+    const historyList = document.getElementById('historyList');
+    if (!historyList) return;
+
+    const dates = Object.keys(state.history).sort((a, b) => {
+        const [d1, m1, y1] = a.split('-').map(Number);
+        const [d2, m2, y2] = b.split('-').map(Number);
         return new Date(y2, m2 - 1, d2) - new Date(y1, m1 - 1, d1);
     });
 
     let options = '';
-    sortedDates.forEach(d => {
-        options += `<option value="${d}">${d === today ? 'Bugun (' + d + ')' : d}</option>`;
+    dates.forEach(d => {
+        const uiDate = formatDateForUI(d);
+        options += `<option value="${d}">${d === today ? 'Bugun (' + uiDate + ')' : uiDate}</option>`;
     });
 
     datePicker.innerHTML = options;
@@ -903,7 +917,7 @@ async function exportToExcel() {
     // 4. Save File
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    saveAs(blob, `Calibri_Report_${dStr.replace(/\./g, '_')}.xlsx`);
+    saveAs(blob, `Calibri_Report_${dStr.replaceAll('-', '_')}.xlsx`);
     console.log("Excel export success!");
 }
 
