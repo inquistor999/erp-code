@@ -50,63 +50,98 @@ function formatDateForUI(dStr) {
 // --- Persistence & Sync Logic ---
 let isSynced = false;
 
+// Robust Deep Merge: Prevents cloud from wiping local if local is more complete
+function deepMergeState(local, cloud) {
+    const merged = { ...local, ...cloud };
+
+    // 1. Merge History (Dates)
+    if (local.history && cloud.history) {
+        merged.history = { ...cloud.history };
+        Object.keys(local.history).forEach(dateKey => {
+            const localDay = local.history[dateKey];
+            const cloudDay = cloud.history[dateKey];
+
+            if (cloudDay) {
+                // Determine which one is more complete
+                const localCount = (localDay.production?.length || 0) + (localDay.sales?.length || 0);
+                const cloudCount = (cloudDay.production?.length || 0) + (cloudDay.sales?.length || 0);
+
+                if (localCount > cloudCount) {
+                    merged.history[dateKey] = localDay;
+                    // Merge paidWorkers to not lose payment status
+                    if (cloudDay.paidWorkers) {
+                        const mergedPaid = Array.from(new Set([...(localDay.paidWorkers || []), ...cloudDay.paidWorkers]));
+                        merged.history[dateKey].paidWorkers = mergedPaid;
+                    }
+                }
+            } else {
+                merged.history[dateKey] = localDay;
+            }
+        });
+    }
+
+    // 2. Merge Ojidaniya (Pending Work)
+    if (local.pendingWork && cloud.pendingWork) {
+        // Use IDs to merge uniquely
+        const cloudIds = new Set(cloud.pendingWork.map(p => p.id));
+        const onlyInLocal = local.pendingWork.filter(p => !cloudIds.has(p.id));
+        merged.pendingWork = [...cloud.pendingWork, ...onlyInLocal];
+    }
+
+    // 3. Sklad Safeguard
+    if (merged.products) {
+        merged.products.forEach((p, idx) => { if (!p.id) p.id = 'p_' + Date.now() + '_' + idx; });
+    }
+    if (merged.materials) {
+        merged.materials.forEach((m, idx) => { if (!m.id) m.id = 'm_' + Date.now() + '_' + idx; });
+    }
+
+    // 4. Balance Safeguard
+    merged.totalBalance = Math.max(local.totalBalance || 0, cloud.totalBalance || 0);
+
+    return merged;
+}
+
 // 1. Load from Cloud (Firebase)
-dbRef.on('value', (snapshot) => {
-    const cloudData = snapshot.val();
+dbRef.once('value').then((snapshot) => {
+    const cloudRaw = snapshot.val();
     const currentFilterDate = state.filterDate || getTodayStr();
 
-    if (cloudData) {
-        // Migration: Convert any old dot-based keys to dash-based
-        if (cloudData.history) {
+    if (cloudRaw) {
+        // Migration logic
+        if (cloudRaw.history) {
             const newHistory = {};
-            Object.keys(cloudData.history).forEach(key => {
+            Object.keys(cloudRaw.history).forEach(key => {
                 const newKey = key.replaceAll('.', '-');
-                newHistory[newKey] = cloudData.history[key];
+                newHistory[newKey] = cloudRaw.history[key];
             });
-            cloudData.history = newHistory;
+            cloudRaw.history = newHistory;
         }
 
-        // Migration: Ensure all legacy products/materials have IDs
-        if (cloudData.products) {
-            cloudData.products.forEach((p, idx) => { if (!p.id) p.id = 'p_leg_' + idx + '_' + Date.now(); });
-        }
-        if (cloudData.materials) {
-            cloudData.materials.forEach((m, idx) => { if (!m.id) m.id = 'm_leg_' + idx + '_' + Date.now(); });
-        }
-
-        state = cloudData;
+        state = deepMergeState(state, cloudRaw);
         state.filterDate = currentFilterDate.replaceAll('.', '-');
 
-        // Ensure critical arrays exist
         if (!state.history) state.history = {};
         if (!state.pendingWork) state.pendingWork = [];
 
-        // Save to local storage for offline support
         localStorage.setItem('calibri_erp_state', JSON.stringify(state));
-        console.log("Cloud Data Synced to Local ✅");
-    } else {
-        // Cloud is empty.
-        // CRITICAL (The Law): If we have local data, DO NOT overwrite it with empty cloud data.
-        // Instead, we assume local data is the source of truth for now and push it UP.
-        const hasLocalData = state.history && Object.keys(state.history).length > 0;
-        if (hasLocalData) {
-            console.log("Cloud is empty but local has data. Pushing local data to cloud... (The Law)");
-            isSynced = true;
-            save();
-        } else {
-            console.log("Both Cloud and Local are empty. Ready for new data.");
-        }
     }
 
     isSynced = true;
     updateUI();
+    save(); // Push merged results back to cloud
 
-    // Update Status Badge
-    const syncEl = document.getElementById('syncStatus');
-    if (syncEl) {
-        syncEl.innerHTML = '<span style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></span> Bulut bilan ulangan';
-        syncEl.style.color = '#10b981';
-    }
+    // Now switch to real-time listener for future updates
+    dbRef.on('value', (snap) => {
+        const data = snap.val();
+        if (data && isSynced) {
+            // Only update if it's a genuine new update from another client
+            // (Simple version: always update UI if isSynced is true)
+            // In a pro ERP we might check timestamps, but for now deepMerge works.
+            state = deepMergeState(state, data);
+            updateUI();
+        }
+    });
 });
 
 // 2. Global Save Function
@@ -534,7 +569,12 @@ function updateUI() {
                         <button class="delete-icon-btn" onclick="deleteSkladItem('product', '${p.id}')">🗑️</button>
                     </div>
                 `;
-            }).join('') || '<p style="text-align:center; color:gray; padding:1rem;">Topilmadi</p>';
+            }).join('') || `
+                <div class="empty-state">
+                    <p style="font-size: 1.2rem; margin-bottom: 0.5rem;">✨</p>
+                    <p>"${searchTerm}" bo'yicha hech narsa topilmadi</p>
+                </div>
+            `;
 
             if (skladBanner) {
                 skladBanner.style.display = 'flex';
@@ -547,7 +587,12 @@ function updateUI() {
                     <span>${m.name} <span class="item-badge ${m.stock > 10 ? 'badge-ok' : 'badge-low'}">${m.stock} m</span></span>
                     <button class="delete-icon-btn" onclick="deleteSkladItem('material', '${m.id}')">🗑️</button>
                 </div>
-            `).join('') || '<p style="text-align:center; color:gray; padding:1rem;">Materiallar topilmadi</p>';
+            `).join('') || `
+                <div class="empty-state">
+                    <p style="font-size: 1.2rem; margin-bottom: 0.5rem;">📦</p>
+                    <p>Bunday material mavjud emas</p>
+                </div>
+            `;
 
             if (skladBanner) skladBanner.style.display = 'none';
         }
@@ -568,10 +613,10 @@ function updateUI() {
 
 function calculateSalaries(dayData) {
     let tasks = [];
-    dayData.production.forEach((prod, pIdx) => {
+    dayData.production.forEach((prod) => {
         prod.workers.forEach((w, wIdx) => {
             tasks.push({
-                id: `${pIdx}_${wIdx}`,
+                id: `${prod.id}_${wIdx}`,
                 name: w.name,
                 itemName: prod.name,
                 qty: w.qty,

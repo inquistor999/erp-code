@@ -171,6 +171,7 @@ input:focus,
 select:focus {
     border-color: var(--accent-blue);
     background: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.1);
 }
 
 /* Detallar selection */
@@ -368,9 +369,12 @@ button.secondary-btn {
 
 .report-item:last-child {
     border-bottom: none;
-    font-weight: bold;
-    font-size: 0.95rem;
+    font-weight: 800;
+    font-size: 1rem;
     color: var(--text-primary);
+    padding-top: 0.75rem;
+    margin-top: 0.25rem;
+    border-top: 1px dashed rgba(255, 255, 255, 0.1);
 }
 
 /* History Selector */
@@ -796,6 +800,11 @@ main>div {
 }
 
 /* Premium UI Enhancements */
+.inventory-item {
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: fadeIn 0.4s ease forwards;
+}
+
 .paid-border {
     border-left: 4px solid var(--accent-emerald);
     background: rgba(16, 185, 129, 0.05);
@@ -811,7 +820,18 @@ main>div {
     outline: none;
     border-color: var(--accent-blue);
     background: rgba(255, 255, 255, 0.1);
-    box-shadow: 0 0 10px rgba(59, 130, 246, 0.2);
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+}
+
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #64748b;
+    font-style: italic;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 12px;
+    border: 1px dashed rgba(255, 255, 255, 0.05);
+    margin: 1rem 0;
 }
 
 .modal-overlay {
