@@ -52,6 +52,8 @@ let isSynced = false;
 
 // Robust Deep Merge: Prevents cloud from wiping local if local is more complete
 function deepMergeState(local, cloud) {
+    if (!cloud) return local; // Emergency Fix: If cloud is empty, return local as is.
+
     const merged = { ...local, ...cloud };
 
     // 1. Merge History (Dates)
@@ -62,13 +64,11 @@ function deepMergeState(local, cloud) {
             const cloudDay = cloud.history[dateKey];
 
             if (cloudDay) {
-                // Determine which one is more complete
                 const localCount = (localDay.production?.length || 0) + (localDay.sales?.length || 0);
                 const cloudCount = (cloudDay.production?.length || 0) + (cloudDay.sales?.length || 0);
 
                 if (localCount > cloudCount) {
                     merged.history[dateKey] = localDay;
-                    // Merge paidWorkers to not lose payment status
                     if (cloudDay.paidWorkers) {
                         const mergedPaid = Array.from(new Set([...(localDay.paidWorkers || []), ...cloudDay.paidWorkers]));
                         merged.history[dateKey].paidWorkers = mergedPaid;
@@ -82,13 +82,14 @@ function deepMergeState(local, cloud) {
 
     // 2. Merge Ojidaniya (Pending Work)
     if (local.pendingWork && cloud.pendingWork) {
-        // Use IDs to merge uniquely
         const cloudIds = new Set(cloud.pendingWork.map(p => p.id));
         const onlyInLocal = local.pendingWork.filter(p => !cloudIds.has(p.id));
         merged.pendingWork = [...cloud.pendingWork, ...onlyInLocal];
+    } else if (local.pendingWork && !cloud.pendingWork) {
+        merged.pendingWork = local.pendingWork;
     }
 
-    // 3. Sklad Safeguard
+    // 3. Sklad Safeguard: Ensure IDs exist for legacy data
     if (merged.products) {
         merged.products.forEach((p, idx) => { if (!p.id) p.id = 'p_' + Date.now() + '_' + idx; });
     }
@@ -119,17 +120,18 @@ dbRef.once('value').then((snapshot) => {
         }
 
         state = deepMergeState(state, cloudRaw);
-        state.filterDate = currentFilterDate.replaceAll('.', '-');
-
-        if (!state.history) state.history = {};
-        if (!state.pendingWork) state.pendingWork = [];
-
-        localStorage.setItem('calibri_erp_state', JSON.stringify(state));
+    } else {
+        console.log("Cloud is empty. Using local as source of truth.");
     }
 
+    state.filterDate = currentFilterDate.replaceAll('.', '-');
+    if (!state.history) state.history = {};
+    if (!state.pendingWork) state.pendingWork = [];
+
     isSynced = true;
+    localStorage.setItem('calibri_erp_state', JSON.stringify(state));
     updateUI();
-    save(); // Push merged results back to cloud
+    save();
 
     // Now switch to real-time listener for future updates
     dbRef.on('value', (snap) => {
@@ -142,6 +144,10 @@ dbRef.once('value').then((snapshot) => {
             updateUI();
         }
     });
+}).catch(err => {
+    console.error("Critical Sync Error:", err);
+    isSynced = true; // Still allow local work
+    updateUI();
 });
 
 // 2. Global Save Function
