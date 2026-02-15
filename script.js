@@ -220,13 +220,18 @@ function submitPendingWork() {
 }
 
 function deletePendingWork(id) {
-    state.pendingWork = state.pendingWork.filter(p => p.id !== id);
-    updateUI(); // Instant update
-    save();
+    secureDelete(() => {
+        // No security needed for completion, but let's keep it safe
+        state.pendingWork = state.pendingWork.filter(p => p.id !== id);
+        updateUI();
+        save();
+    });
 }
 
 function calculateDaysPassed(createdAt) {
+    if (!createdAt) return 0;
     const start = new Date(createdAt);
+    if (isNaN(start.getTime())) return 0;
     const today = new Date();
     const diffTime = Math.abs(today - start);
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
@@ -239,7 +244,7 @@ function showView(viewId, btn) {
     document.querySelectorAll('.nav-buttons .btn-thin').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
 
-    const views = ['productionView', 'salesView', 'salariesView', 'skladView', 'ojidaniyaView', 'tarixView'];
+    const views = ['productionView', 'salesView', 'salariesView', 'skladView', 'ojidaniyaView', 'tarixView', 'settingsView'];
     views.forEach(v => {
         const el = document.getElementById(v);
         if (el) el.style.display = (v === viewId + 'View') ? 'block' : 'none';
@@ -330,17 +335,20 @@ function openAddModal() {
     if (el) el.style.display = 'block';
 }
 
+// Deletion with Security
 function deleteSkladItem(type, id) {
-    if (!confirm("Haqiqatdan ham ushbu tovarna bazadan o'chirmoqchimisiz?")) return;
+    secureDelete(() => {
+        if (!confirm("Haqiqatdan ham ushbu tovarna bazadan o'chirmoqchimisiz?")) return;
 
-    if (type === 'material') {
-        state.materials = state.materials.filter(m => m.id !== id);
-    } else if (type === 'product') {
-        state.products = state.products.filter(p => p.id !== id);
-    }
+        if (type === 'material') {
+            state.materials = state.materials.filter(m => m.id !== id);
+        } else if (type === 'product') {
+            state.products = state.products.filter(p => p.id !== id);
+        }
 
-    updateUI(); // Instant update
-    save();
+        updateUI();
+        save();
+    });
 }
 
 function submitUniversalAdd() {
@@ -481,11 +489,18 @@ function toggleSalaryPayment(taskId) {
     if (!state.history[dStr].paidWorkers) state.history[dStr].paidWorkers = [];
 
     if (state.history[dStr].paidWorkers.includes(taskId)) {
-        return;
+        return; // Already paid
+    }
+
+    // Find the task amount to deduct from balance
+    const tasks = calculateSalaries(state.history[dStr]);
+    const task = tasks.find(t => t.id === taskId);
+    if (task) {
+        state.totalBalance -= task.total;
     }
 
     state.history[dStr].paidWorkers.push(taskId);
-    updateUI(); // Instant update
+    updateUI();
     save();
 }
 
@@ -620,9 +635,10 @@ function updateUI() {
 function calculateSalaries(dayData) {
     let tasks = [];
     dayData.production.forEach((prod) => {
+        const prodId = prod.id || ('legacy_' + prod.name);
         prod.workers.forEach((w, wIdx) => {
             tasks.push({
-                id: `${prod.id}_${wIdx}`,
+                id: `${prodId}_${wIdx}`,
                 name: w.name,
                 itemName: prod.name,
                 qty: w.qty,
@@ -717,7 +733,7 @@ function renderDetailedHistory() {
                 <div class="history-header"><h4>${s.name}</h4> <span>${s.time}</span></div>
                 <div class="history-details">
                     <div class="history-sub-item"><span>Sotildi:</span> <b>${s.qty} dona</b></div>
-                    <div class="history-sub-item)<span>Narxi:</span> <b>${s.price.toLocaleString()} So'm</b></div>
+                    <div class="history-sub-item"><span>Narxi:</span> <b>${s.price.toLocaleString()} So'm</b></div>
                     <div class="history-sub-item"><span>Sof foyda:</span> <b style="color:var(--accent-emerald)">${s.profit.toLocaleString()} So'm</b></div>
                 </div>
             </div>
@@ -1031,11 +1047,45 @@ async function exportToExcel() {
     console.log("Excel export success!");
 }
 
-// Global Help Functions
-window.removeRow = (id) => {
-    const el = document.getElementById(id);
-    if (el) el.remove();
-};
+// --- Ultra-Premium Security Phase ---
+const MASTER_PIN = "7777";
+
+function checkSecurity(callback) {
+    const pin = prompt("Xavfsizlik parolini kiriting (Master PIN):");
+    if (pin === MASTER_PIN) {
+        callback();
+    } else {
+        alert("Xavfsizlik paroli noto'g'ri! Amallarga ruxsat berilmadi.");
+    }
+}
+
+// System Backup: Export entire state as JSON
+function exportSystemBackup() {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `Calibri_Full_Backup_${getTodayStr()}.json`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+    alert("Tizimning to'liq nusxasi (Backup) yuklab olindi! 💾");
+}
+
+function resetEntireDatabase() {
+    checkSecurity(() => {
+        if (confirm("DIQQAT! Barcha ma'lumotlar butunlay o'chib ketadi. Rozimisiz?")) {
+            state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+            save();
+            updateUI();
+            alert("Baza butunlay tozalandi! 🧹");
+        }
+    });
+}
+
+// Wrapper for sensitive deletes
+function secureDelete(callback) {
+    checkSecurity(callback);
+}
 
 // Init
 window.onload = () => {

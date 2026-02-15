@@ -76,204 +76,224 @@
                 <span id="ojidaniyaBadge" class="nav-badge" style="display: none;">0</span>
             </button>
             <button class="btn-thin" onclick="showView('tarix', this)">Tarix</button>
+            <button class="btn-thin" onclick="showView('settings', this)">Sozlamalar</button>
         </div>
 
         <main class="main-content">
             <div class="form-container">
-                <!-- Production Form -->
-                <div class="glass-card" id="productionView">
-                    <h3 style="margin-bottom: 1.25rem;">Yangi Ishlab Chiqarish</h3>
-
-                    <div class="form-row">
-                        <div class="input-group">
-                            <label>Kiyim Nomi</label>
-                            <input type="text" id="prodName" placeholder="Masalan: Oq Futbolka">
+                <!-- Settings View -->
+                <div class="glass-card" id="settingsView" style="display: none;">
+                    <h3 style="margin-bottom: 1.5rem;">Tizim Sozlamalari & Xavfsizlik</h3>
+                    <div style="display: grid; gap: 1rem;">
+                        <div class="glass-card"
+                            style="background: rgba(16, 185, 129, 0.05); border-color: rgba(16, 185, 129, 0.2);">
+                            <h4 style="color: var(--accent-emerald); margin-bottom: 0.5rem;">Ma'lumotlar Zahirasi</h4>
+                            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">Barcha
+                                ma'lumotlarni JSON fayl holatida yuklab oling.</p>
+                            <button class="secondary-btn" onclick="exportSystemBackup()">Tizim Nusxasini Yuklash
+                                (Backup)</button>
                         </div>
-                        <div class="input-group">
-                            <label>Jami Soni (Dona)</label>
-                            <input type="number" id="prodTotalQty" placeholder="0">
+
+                        <div class="glass-card"
+                            style="background: rgba(244, 63, 94, 0.05); border-color: rgba(244, 63, 94, 0.2);">
+                            <h4 style="color: #f43f5e; margin-bottom: 0.5rem;">Xavfli Amallar</h4>
+                            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">Bazani
+                                tozalash yoki barcha ma'lumotlarni o'chirish.</p>
+                            <button class="primary-btn" style="background: #f43f5e; color: white;"
+                                onclick="resetEntireDatabase()">Bazani Tozalash (Reset)</button>
                         </div>
                     </div>
-
-                    <!-- Materiallar (Multi) -->
-                    <div style="margin-bottom: 2rem;">
-                        <h4 style="font-size: 0.9rem; margin-bottom: 0.75rem;">Mato va Materiallar</h4>
-                        <div id="materialRowsContainer"></div>
-                        <button class="btn-thin" style="padding: 0.3rem 0.8rem;" onclick="addMaterialRow()">+ Mato
-                            Qo'shish</button>
-                    </div>
-
-                    <!-- Ishchilar (Multi) -->
-                    <div style="border-top: 1px solid var(--glass-border); padding-top: 1.5rem;">
-                        <h4 style="margin-bottom: 1rem; font-size: 0.9rem; color: var(--accent-blue);">Ishchi Hisobi
-                        </h4>
-                        <div id="workerRowsContainer"></div>
-                        <button class="btn-thin" style="padding: 0.3rem 0.8rem;" onclick="addWorkerRow()">+ Ishchi
-                            Qo'shish</button>
-                    </div>
-
-                    <button class="primary-btn" onclick="submitProduction()">Ishni Yakunlash ва Saqlash</button>
                 </div>
+                <h3 style="margin-bottom: 1.25rem;">Yangi Ishlab Chiqarish</h3>
 
-                <!-- Sales Form -->
-                <div class="glass-card" id="salesView" style="display: none;">
-                    <h3 style="margin-bottom: 1.25rem;">Sotuvni Qayd Etish</h3>
-                    <div class="form-row">
-                        <div class="input-group">
-                            <label>Mahsulot</label>
-                            <select id="saleProduct" style="background: transparent;">
-                                <!-- Dynamic -->
-                            </select>
-                        </div>
-                        <div class="input-group">
-                            <label>Soni</label>
-                            <input type="number" id="saleQty" placeholder="0">
-                        </div>
+                <div class="form-row">
+                    <div class="input-group">
+                        <label>Kiyim Nomi</label>
+                        <input type="text" id="prodName" placeholder="Masalan: Oq Futbolka">
                     </div>
-                    <div class="form-row">
-                        <div class="input-group">
-                            <label>Sotuv Narxi (1 dona üçün)</label>
-                            <input type="number" id="salePrice" placeholder="0 So'm">
-                        </div>
-                    </div>
-                    <button class="primary-btn" onclick="submitSale()">Sotuvni Bazaga Qo'shish</button>
-                </div>
-
-                <!-- Salaries View -->
-                <div class="glass-card" id="salariesView" style="display: none;">
-                    <h3 style="margin-bottom: 1.25rem;">Ishchilar Maoshi</h3>
-                    <div id="dailySalariesList">
-                        <!-- List of workers and their total daily pay -->
+                    <div class="input-group">
+                        <label>Jami Soni (Dona)</label>
+                        <input type="number" id="prodTotalQty" placeholder="0">
                     </div>
                 </div>
 
-                <!-- Sklad View (Renamed from Inventory) -->
-                <div class="glass-card" id="skladView" style="display: none;">
-                    <div class="sklad-header">
-                        <h3>Sklad (Ombor)</h3>
-                        <div class="add-product-btn" onclick="openAddModal()">+</div>
-                    </div>
-
-                    <!-- Total Sklad Value Banner -->
-                    <div id="skladTotalValueBanner" class="sklad-total-banner" style="display: none;">
-                        <span class="label">Jami Sklad Qiymati:</span>
-                        <span class="value" id="skladTotalValue">0 So'm</span>
-                    </div>
-
-                    <!-- Universal Add Form (Hidden initially) -->
-                    <div id="universalAddForm"
-                        style="display: none; margin-bottom: 2rem; border: 1px solid var(--accent-blue); padding: 1.25rem; border-radius: 1rem; background: rgba(59, 130, 246, 0.05);">
-                        <h4 style="margin-bottom: 1rem;">Yangi Tovar Qo'shish</h4>
-                        <div class="form-row">
-                            <div class="input-group">
-                                <label>Turi</label>
-                                <select id="uType">
-                                    <option value="product">Tayyor Kiyim</option>
-                                    <option value="material">Mato</option>
-                                    <option value="detail">Detal (Ip, Zamok...)</option>
-                                </select>
-                            </div>
-                            <div class="input-group">
-                                <label>Nomi</label>
-                                <input type="text" id="uName" placeholder="Nomi...">
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <div class="input-group">
-                                <label>Miqdori</label>
-                                <input type="number" id="uQty" placeholder="0">
-                            </div>
-                            <div class="input-group">
-                                <label>Birlik Narxi</label>
-                                <input type="number" id="uPrice" placeholder="0 So'm">
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
-                            <button class="primary-btn" style="margin-top: 0;" onclick="submitUniversalAdd()">Bazaga
-                                Qo'shish</button>
-                            <button class="secondary-btn"
-                                onclick="document.getElementById('universalAddForm').style.display='none'">Bekor
-                                Qilish</button>
-                        </div>
-                    </div>
-
-                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap;">
-                        <button class="btn-thin active" onclick="setInventoryTab('ready', this)">Kiyimlar</button>
-                        <button class="btn-thin" onclick="setInventoryTab('materials', this)">Materiallar</button>
-                        <input type="text" id="skladSearch" placeholder="Qidiruv..." oninput="updateUI()"
-                            style="flex: 1; min-width: 120px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0 0.75rem; color: white; font-size: 0.85rem;">
-                    </div>
-                    <div class="inventory-list" id="sidebarList"></div>
+                <!-- Materiallar (Multi) -->
+                <div style="margin-bottom: 2rem;">
+                    <h4 style="font-size: 0.9rem; margin-bottom: 0.75rem;">Mato va Materiallar</h4>
+                    <div id="materialRowsContainer"></div>
+                    <button class="btn-thin" style="padding: 0.3rem 0.8rem;" onclick="addMaterialRow()">+ Mato
+                        Qo'shish</button>
                 </div>
 
-                <!-- Ojidaniya View -->
-                <div class="glass-card" id="ojidaniyaView" style="display: none;">
-                    <div
-                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                        <h3>Ojidaniya (Kutishdagi ishlar)</h3>
-                        <div class="add-product-btn" onclick="openPendingModal()">+</div>
-                    </div>
-                    <div id="ojidaniyaList" class="history-container">
-                        <!-- Pending work cards injected here -->
-                    </div>
+                <!-- Ishchilar (Multi) -->
+                <div style="border-top: 1px solid var(--glass-border); padding-top: 1.5rem;">
+                    <h4 style="margin-bottom: 1rem; font-size: 0.9rem; color: var(--accent-blue);">Ishchi Hisobi
+                    </h4>
+                    <div id="workerRowsContainer"></div>
+                    <button class="btn-thin" style="padding: 0.3rem 0.8rem;" onclick="addWorkerRow()">+ Ishchi
+                        Qo'shish</button>
                 </div>
 
-                <!-- Tarix View -->
-                <div class="glass-card" id="tarixView" style="display: none;">
-                    <h3 style="margin-bottom: 1.25rem;">Amallar Tarixi</h3>
-                    <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
-                        <button class="btn-thin active" onclick="setHistoryTab('prod_hist', this)">Ishlab
-                            Chiqarish</button>
-                        <button class="btn-thin" onclick="setHistoryTab('sales_hist', this)">Sotuvlar</button>
-                        <button class="btn-thin" onclick="setHistoryTab('worker_hist', this)">Ishchilar</button>
-                    </div>
+                <button class="primary-btn" onclick="submitProduction()">Ishni Yakunlash ва Saqlash</button>
+            </div>
 
-                    <div id="workerFilterContainer" style="display: none; margin-bottom: 1rem;">
-                        <input type="text" id="workerHistorySearch" placeholder="Ishchi ismini yozing..."
-                            oninput="renderDetailedHistory()"
-                            style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(34, 211, 238, 0.3); border-radius: 8px; padding: 0.6rem 0.75rem; color: white; font-size: 0.9rem;">
+            <!-- Sales Form -->
+            <div class="glass-card" id="salesView" style="display: none;">
+                <h3 style="margin-bottom: 1.25rem;">Sotuvni Qayd Etish</h3>
+                <div class="form-row">
+                    <div class="input-group">
+                        <label>Mahsulot</label>
+                        <select id="saleProduct" style="background: transparent;">
+                            <!-- Dynamic -->
+                        </select>
                     </div>
-                    <div id="historyDetailedList" class="history-container">
-                        <!-- History cards injected here -->
+                    <div class="input-group">
+                        <label>Soni</label>
+                        <input type="number" id="saleQty" placeholder="0">
                     </div>
+                </div>
+                <div class="form-row">
+                    <div class="input-group">
+                        <label>Sotuv Narxi (1 dona üçün)</label>
+                        <input type="number" id="salePrice" placeholder="0 So'm">
+                    </div>
+                </div>
+                <button class="primary-btn" onclick="submitSale()">Sotuvni Bazaga Qo'shish</button>
+            </div>
+
+            <!-- Salaries View -->
+            <div class="glass-card" id="salariesView" style="display: none;">
+                <h3 style="margin-bottom: 1.25rem;">Ishchilar Maoshi</h3>
+                <div id="dailySalariesList">
+                    <!-- List of workers and their total daily pay -->
                 </div>
             </div>
 
-            <aside class="inventory-section" id="reportSidebar">
-                <div class="glass-card" style="padding: 1.25rem;">
-                    <div
-                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                        <h3 style="font-size: 1.1rem;">Bugungi Hisobot</h3>
+            <!-- Sklad View (Renamed from Inventory) -->
+            <div class="glass-card" id="skladView" style="display: none;">
+                <div class="sklad-header">
+                    <h3>Sklad (Ombor)</h3>
+                    <div class="add-product-btn" onclick="openAddModal()">+</div>
+                </div>
+
+                <!-- Total Sklad Value Banner -->
+                <div id="skladTotalValueBanner" class="sklad-total-banner" style="display: none;">
+                    <span class="label">Jami Sklad Qiymati:</span>
+                    <span class="value" id="skladTotalValue">0 So'm</span>
+                </div>
+
+                <!-- Universal Add Form (Hidden initially) -->
+                <div id="universalAddForm"
+                    style="display: none; margin-bottom: 2rem; border: 1px solid var(--accent-blue); padding: 1.25rem; border-radius: 1rem; background: rgba(59, 130, 246, 0.05);">
+                    <h4 style="margin-bottom: 1rem;">Yangi Tovar Qo'shish</h4>
+                    <div class="form-row">
+                        <div class="input-group">
+                            <label>Turi</label>
+                            <select id="uType">
+                                <option value="product">Tayyor Kiyim</option>
+                                <option value="material">Mato</option>
+                                <option value="detail">Detal (Ip, Zamok...)</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label>Nomi</label>
+                            <input type="text" id="uName" placeholder="Nomi...">
+                        </div>
                     </div>
-
-                    <div class="report-grid">
-                        <div class="report-section">
-                            <h4>⚙️ Ishlab Chiqarish</h4>
-                            <div id="productionReportItems" class="report-list"></div>
+                    <div class="form-row">
+                        <div class="input-group">
+                            <label>Miqdori</label>
+                            <input type="number" id="uQty" placeholder="0">
                         </div>
-
-                        <div class="report-section">
-                            <h4>💰 Sotuvlar</h4>
-                            <div id="salesReportItems" class="report-list"></div>
+                        <div class="input-group">
+                            <label>Birlik Narxi</label>
+                            <input type="number" id="uPrice" placeholder="0 So'm">
                         </div>
-
-                        <div class="report-section">
-                            <h4>👷 Maosh To'lovi</h4>
-                            <div id="salariesBriefReport" class="report-list"></div>
-                        </div>
-
-                        <div class="report-section total-section">
-                            <div class="total-row"><span>Kirim</span> <span id="sideRevenue" class="positive">0</span>
-                            </div>
-                            <div class="total-row"><span>Chiqim</span> <span id="sideExpense" class="negative">0</span>
-                            </div>
-                            <div class="total-row main-total"><span>JAMI BALANS</span> <span id="sideProfit">0</span>
-                            </div>
-                        </div>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                        <button class="primary-btn" style="margin-top: 0;" onclick="submitUniversalAdd()">Bazaga
+                            Qo'shish</button>
+                        <button class="secondary-btn"
+                            onclick="document.getElementById('universalAddForm').style.display='none'">Bekor
+                            Qilish</button>
                     </div>
                 </div>
-            </aside>
-        </main>
+
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap;">
+                    <button class="btn-thin active" onclick="setInventoryTab('ready', this)">Kiyimlar</button>
+                    <button class="btn-thin" onclick="setInventoryTab('materials', this)">Materiallar</button>
+                    <input type="text" id="skladSearch" placeholder="Qidiruv..." oninput="updateUI()"
+                        style="flex: 1; min-width: 120px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0 0.75rem; color: white; font-size: 0.85rem;">
+                </div>
+                <div class="inventory-list" id="sidebarList"></div>
+            </div>
+
+            <!-- Ojidaniya View -->
+            <div class="glass-card" id="ojidaniyaView" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                    <h3>Ojidaniya (Kutishdagi ishlar)</h3>
+                    <div class="add-product-btn" onclick="openPendingModal()">+</div>
+                </div>
+                <div id="ojidaniyaList" class="history-container">
+                    <!-- Pending work cards injected here -->
+                </div>
+            </div>
+
+            <!-- Tarix View -->
+            <div class="glass-card" id="tarixView" style="display: none;">
+                <h3 style="margin-bottom: 1.25rem;">Amallar Tarixi</h3>
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                    <button class="btn-thin active" onclick="setHistoryTab('prod_hist', this)">Ishlab
+                        Chiqarish</button>
+                    <button class="btn-thin" onclick="setHistoryTab('sales_hist', this)">Sotuvlar</button>
+                    <button class="btn-thin" onclick="setHistoryTab('worker_hist', this)">Ishchilar</button>
+                </div>
+
+                <div id="workerFilterContainer" style="display: none; margin-bottom: 1rem;">
+                    <input type="text" id="workerHistorySearch" placeholder="Ishchi ismini yozing..."
+                        oninput="renderDetailedHistory()"
+                        style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(34, 211, 238, 0.3); border-radius: 8px; padding: 0.6rem 0.75rem; color: white; font-size: 0.9rem;">
+                </div>
+                <div id="historyDetailedList" class="history-container">
+                    <!-- History cards injected here -->
+                </div>
+            </div>
+    </div>
+
+    <aside class="inventory-section" id="reportSidebar">
+        <div class="glass-card" style="padding: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3 style="font-size: 1.1rem;">Bugungi Hisobot</h3>
+            </div>
+
+            <div class="report-grid">
+                <div class="report-section">
+                    <h4>⚙️ Ishlab Chiqarish</h4>
+                    <div id="productionReportItems" class="report-list"></div>
+                </div>
+
+                <div class="report-section">
+                    <h4>💰 Sotuvlar</h4>
+                    <div id="salesReportItems" class="report-list"></div>
+                </div>
+
+                <div class="report-section">
+                    <h4>👷 Maosh To'lovi</h4>
+                    <div id="salariesBriefReport" class="report-list"></div>
+                </div>
+
+                <div class="report-section total-section">
+                    <div class="total-row"><span>Kirim</span> <span id="sideRevenue" class="positive">0</span>
+                    </div>
+                    <div class="total-row"><span>Chiqim</span> <span id="sideExpense" class="negative">0</span>
+                    </div>
+                    <div class="total-row main-total"><span>JAMI BALANS</span> <span id="sideProfit">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </aside>
+    </main>
     </div>
 
     <script src="script.js"></script>
