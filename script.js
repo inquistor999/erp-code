@@ -24,6 +24,7 @@ const DEFAULT_STATE = {
     products: [],
     history: {},
     pendingWork: [],
+    notepad: "",
     totalBalance: 0,
     currentInventoryTab: 'ready',
     currentHistoryTab: 'prod_hist',
@@ -52,7 +53,7 @@ let isSynced = false;
 
 // Robust Deep Merge: Prevents cloud from wiping local if local is more complete
 function deepMergeState(local, cloud) {
-    if (!cloud) return local; // Emergency Fix: If cloud is empty, return local as is.
+    if (!cloud) return local;
 
     const merged = { ...local, ...cloud };
 
@@ -80,7 +81,24 @@ function deepMergeState(local, cloud) {
         });
     }
 
-    // 2. Merge Ojidaniya (Pending Work)
+    // 2. Symmetric Array Merging (The Law v4 - Absolute Protection)
+    // This prevents new local Sklad items from being ghosted by cloud sync
+    const mergeArrays = (localArr, cloudArr) => {
+        const result = cloudArr ? [...cloudArr] : [];
+        if (!localArr) return result;
+        const cloudIds = new Set(result.map(x => x.id));
+        localArr.forEach(item => {
+            if (!cloudIds.has(item.id)) {
+                result.push(item);
+            }
+        });
+        return result;
+    };
+
+    merged.products = mergeArrays(local.products, cloud.products);
+    merged.materials = mergeArrays(local.materials, cloud.materials);
+
+    // 3. Merge Ojidaniya (Pending Work)
     if (local.pendingWork && cloud.pendingWork) {
         const cloudIds = new Set(cloud.pendingWork.map(p => p.id));
         const onlyInLocal = local.pendingWork.filter(p => !cloudIds.has(p.id));
@@ -89,15 +107,12 @@ function deepMergeState(local, cloud) {
         merged.pendingWork = local.pendingWork;
     }
 
-    // 3. Sklad Safeguard: Ensure IDs exist for legacy data
-    if (merged.products) {
-        merged.products.forEach((p, idx) => { if (!p.id) p.id = 'p_' + Date.now() + '_' + idx; });
-    }
-    if (merged.materials) {
-        merged.materials.forEach((m, idx) => { if (!m.id) m.id = 'm_' + Date.now() + '_' + idx; });
+    // 4. Notepad Safeguard
+    if (local.notepad && (!cloud.notepad || local.notepad.length > cloud.notepad.length)) {
+        merged.notepad = local.notepad;
     }
 
-    // 4. Balance Safeguard
+    // 5. Balance Safeguard
     merged.totalBalance = Math.max(local.totalBalance || 0, cloud.totalBalance || 0);
 
     return merged;
@@ -509,6 +524,12 @@ function updateUI() {
     const dStr = state.filterDate;    // Display Date
     const displayDateEl = document.getElementById('currentDateDisplay');
     if (displayDateEl) displayDateEl.innerText = "Bugun: " + formatDateForUI(state.filterDate);
+
+    // Update Notepad Ref if open
+    const notepadField = document.getElementById('notepadTextarea');
+    if (notepadField && document.getElementById('notepadDrawer').classList.contains('active')) {
+        notepadField.value = state.notepad || "";
+    }
 
     const dayData = state.history[dStr] || { production: [], sales: [] };
 
@@ -1057,6 +1078,27 @@ function checkSecurity(callback) {
     } else {
         alert("Xavfsizlik paroli noto'g'ri! Amallarga ruxsat berilmadi.");
     }
+}
+
+// --- Notion-Style Notepad Logic ---
+function toggleNotepad() {
+    const drawer = document.getElementById('notepadDrawer');
+    const overlay = document.getElementById('notepadOverlay');
+    if (drawer && overlay) {
+        drawer.classList.toggle('active');
+        overlay.classList.toggle('active');
+
+        if (drawer.classList.contains('active')) {
+            document.getElementById('notepadTextarea').value = state.notepad || "";
+            document.getElementById('notepadTextarea').focus();
+        }
+    }
+}
+
+function saveNotepad() {
+    const txt = document.getElementById('notepadTextarea').value;
+    state.notepad = txt;
+    save(); // Direct save for real-time feel
 }
 
 // System Backup: Export entire state as JSON

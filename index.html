@@ -31,6 +31,7 @@
             </div>
             <div class="header-actions" style="display: flex; gap: 0.75rem; align-items: center;">
                 <div class="history-menu" style="display: flex; gap: 0.5rem; align-items: center;">
+                    <div class="notepad-trigger" onclick="toggleNotepad()" title="Chernavik (Notion)">📝</div>
                     <select id="historyDatePicker" class="history-select" onchange="filterHistoryByDate(this.value)">
                         <option value="today">Bugun</option>
                     </select>
@@ -294,6 +295,21 @@
         </div>
     </aside>
     </main>
+    </div>
+
+    <!-- Notion-Style Notepad (Chernavik) -->
+    <div class="notepad-overlay" id="notepadOverlay" onclick="toggleNotepad()"></div>
+    <div class="notepad-drawer" id="notepadDrawer">
+        <div class="notepad-header">
+            <h2>Bloknot (Chernavik)</h2>
+            <div class="notepad-close" onclick="toggleNotepad()">✕</div>
+        </div>
+        <div class="notepad-body">
+            <div class="notepad-divider"></div>
+            <textarea id="notepadTextarea" class="notepad-textarea"
+                placeholder="Bu yerda istalgan narsani yozishingiz mumkin. Avtomatik saqlanadi..."
+                oninput="saveNotepad()"></textarea>
+        </div>
     </div>
 
     <script src="script.js"></script>
