@@ -77,34 +77,10 @@
                 <span id="ojidaniyaBadge" class="nav-badge" style="display: none;">0</span>
             </button>
             <button class="btn-thin" onclick="showView('tarix', this)">Tarix</button>
-            <button class="btn-thin" onclick="showView('settings', this)">Sozlamalar</button>
         </div>
 
         <main class="main-content">
             <div class="form-container">
-                <!-- Settings View -->
-                <div class="glass-card" id="settingsView" style="display: none;">
-                    <h3 style="margin-bottom: 1.5rem;">Tizim Sozlamalari & Xavfsizlik</h3>
-                    <div style="display: grid; gap: 1rem;">
-                        <div class="glass-card"
-                            style="background: rgba(16, 185, 129, 0.05); border-color: rgba(16, 185, 129, 0.2);">
-                            <h4 style="color: var(--accent-emerald); margin-bottom: 0.5rem;">Ma'lumotlar Zahirasi</h4>
-                            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">Barcha
-                                ma'lumotlarni JSON fayl holatida yuklab oling.</p>
-                            <button class="secondary-btn" onclick="exportSystemBackup()">Tizim Nusxasini Yuklash
-                                (Backup)</button>
-                        </div>
-
-                        <div class="glass-card"
-                            style="background: rgba(244, 63, 94, 0.05); border-color: rgba(244, 63, 94, 0.2);">
-                            <h4 style="color: #f43f5e; margin-bottom: 0.5rem;">Xavfli Amallar</h4>
-                            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">Bazani
-                                tozalash yoki barcha ma'lumotlarni o'chirish.</p>
-                            <button class="primary-btn" style="background: #f43f5e; color: white;"
-                                onclick="resetEntireDatabase()">Bazani Tozalash (Reset)</button>
-                        </div>
-                    </div>
-                </div>
                 <h3 style="margin-bottom: 1.25rem;">Yangi Ishlab Chiqarish</h3>
 
                 <div class="form-row">
@@ -306,6 +282,20 @@
         </div>
         <div class="notepad-body">
             <div class="notepad-divider"></div>
+            <!-- Drawing Canvas Integration -->
+            <div class="canvas-container"
+                style="position: relative; flex: 1; min-height: 250px; background: #fafafa; border-radius: 8px; margin-bottom: 10px; border: 1px solid #eee;">
+                <canvas id="notepadCanvas" style="width: 100%; height: 100%; cursor: crosshair;"></canvas>
+                <div class="canvas-controls"
+                    style="position: absolute; bottom: 10px; right: 10px; display: flex; gap: 5px;">
+                    <button class="btn-thin" style="padding: 2px 8px; background: white; color: #333;"
+                        onclick="clearCanvas()">🧹</button>
+                    <button id="penBtn" class="btn-thin active"
+                        style="padding: 2px 8px; background: white; color: #333;" onclick="setMode('pen')">✏️</button>
+                    <button id="eraserBtn" class="btn-thin" style="padding: 2px 8px; background: white; color: #333;"
+                        onclick="setMode('eraser')">🧽</button>
+                </div>
+            </div>
             <textarea id="notepadTextarea" class="notepad-textarea"
                 placeholder="Bu yerda istalgan narsani yozishingiz mumkin. Avtomatik saqlanadi..."
                 oninput="saveNotepad()"></textarea>

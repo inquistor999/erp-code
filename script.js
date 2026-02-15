@@ -25,6 +25,7 @@ const DEFAULT_STATE = {
     history: {},
     pendingWork: [],
     notepad: "",
+    notepadDrawing: "", // Added for canvas base64
     totalBalance: 0,
     currentInventoryTab: 'ready',
     currentHistoryTab: 'prod_hist',
@@ -107,9 +108,9 @@ function deepMergeState(local, cloud) {
         merged.pendingWork = local.pendingWork;
     }
 
-    // 4. Notepad Safeguard
-    if (local.notepad && (!cloud.notepad || local.notepad.length > cloud.notepad.length)) {
-        merged.notepad = local.notepad;
+    // 4. Notepad Drawing Safeguard
+    if (local.notepadDrawing && (!cloud.notepadDrawing || local.notepadDrawing.length > cloud.notepadDrawing.length)) {
+        merged.notepadDrawing = local.notepadDrawing;
     }
 
     // 5. Balance Safeguard
@@ -142,6 +143,10 @@ dbRef.once('value').then((snapshot) => {
     state.filterDate = currentFilterDate.replaceAll('.', '-');
     if (!state.history) state.history = {};
     if (!state.pendingWork) state.pendingWork = [];
+    if (!state.products) state.products = [];
+    if (!state.materials) state.materials = [];
+    if (!state.notepad) state.notepad = "";
+    if (!state.notepadDrawing) state.notepadDrawing = "";
 
     isSynced = true;
     localStorage.setItem('calibri_erp_state', JSON.stringify(state));
@@ -216,6 +221,8 @@ function submitPendingWork() {
 
     if (!workerName || !itemName || isNaN(qty)) return alert("Ma'lumotlarni to'ldiring!");
 
+    if (!state.pendingWork) state.pendingWork = [];
+
     state.pendingWork.push({
         id: Date.now(),
         workerName,
@@ -259,7 +266,7 @@ function showView(viewId, btn) {
     document.querySelectorAll('.nav-buttons .btn-thin').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
 
-    const views = ['productionView', 'salesView', 'salariesView', 'skladView', 'ojidaniyaView', 'tarixView', 'settingsView'];
+    const views = ['productionView', 'salesView', 'salariesView', 'skladView', 'ojidaniyaView', 'tarixView'];
     views.forEach(v => {
         const el = document.getElementById(v);
         if (el) el.style.display = (v === viewId + 'View') ? 'block' : 'none';
@@ -382,7 +389,7 @@ function submitUniversalAdd() {
         } else {
             state.materials.push({
                 id: 'm' + Date.now(),
-                name,
+                name: name, // Original casing for display
                 stock: qty,
                 unit: (type === 'material' ? 'm' : 'dona'),
                 costPerUnit: price
@@ -394,7 +401,7 @@ function submitUniversalAdd() {
             prod.qty += qty;
             prod.costPrice = price;
         } else {
-            state.products.push({ id: 'p' + Date.now(), name, qty, costPrice: price });
+            state.products.push({ id: 'p' + Date.now(), name: name, qty: qty, costPrice: price });
         }
     }
 
@@ -637,6 +644,7 @@ function updateUI() {
             `;
 
             if (skladBanner) skladBanner.style.display = 'none';
+            skladTotalValueEl.innerText = "";
         }
     }
 
@@ -739,23 +747,23 @@ function renderDetailedHistory() {
     if (state.currentHistoryTab === 'prod_hist') {
         container.innerHTML = dayData.production.map(p => `
             <div class="history-card">
-                <div class="history-header"><h4>${p.name}</h4> <span>${p.time}</span></div>
+                <div class="history-header"><h4>${p.name || 'Nomsiz'}</h4> <span>${p.time || ''}</span></div>
                 <div class="history-details">
-                    <div class="history-sub-item"><span>Umumiy soni:</span> <b>${p.qty} dona</b></div>
-                    <div class="history-sub-item"><span>Materiallar:</span> <b>${p.materials.map(m => m.name).join(', ')}</b></div>
-                    <div class="history-sub-item"><span>Ishchilar:</span> <b>${p.workers.map(w => w.name + '(' + w.qty + ')').join(', ')}</b></div>
-                    <div class="history-sub-item"><span>Jami xarajat:</span> <b>${p.totalExp.toLocaleString()} So'm</b></div>
+                    <div class="history-sub-item"><span>Umumiy soni:</span> <b>${p.qty || 0} dona</b></div>
+                    <div class="history-sub-item"><span>Materiallar:</span> <b>${(p.materials || []).map(m => m.name).join(', ') || 'Yo\'q'}</b></div>
+                    <div class="history-sub-item"><span>Ishchilar:</span> <b>${(p.workers || []).map(w => (w.name || 'Ishchi') + '(' + (w.qty || 0) + ')').join(', ') || 'Yo\'q'}</b></div>
+                    <div class="history-sub-item"><span>Jami xarajat:</span> <b>${(p.totalExp || 0).toLocaleString()} So'm</b></div>
                 </div>
             </div>
         `).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Ishlab chiqarish tarixi bo\'sh</p>';
     } else if (state.currentHistoryTab === 'sales_hist') {
         container.innerHTML = dayData.sales.map(s => `
             <div class="history-card">
-                <div class="history-header"><h4>${s.name}</h4> <span>${s.time}</span></div>
+                <div class="history-header"><h4>${s.name || 'Nomsiz'}</h4> <span>${s.time || ''}</span></div>
                 <div class="history-details">
-                    <div class="history-sub-item"><span>Sotildi:</span> <b>${s.qty} dona</b></div>
-                    <div class="history-sub-item"><span>Narxi:</span> <b>${s.price.toLocaleString()} So'm</b></div>
-                    <div class="history-sub-item"><span>Sof foyda:</span> <b style="color:var(--accent-emerald)">${s.profit.toLocaleString()} So'm</b></div>
+                    <div class="history-sub-item"><span>Sotildi:</span> <b>${s.qty || 0} dona</b></div>
+                    <div class="history-sub-item"><span>Narxi:</span> <b>${(s.price || 0).toLocaleString()} So'm</b></div>
+                    <div class="history-sub-item"><span>Sof foyda:</span> <b style="color:var(--accent-emerald)">${(s.profit || 0).toLocaleString()} So'm</b></div>
                 </div>
             </div>
         `).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Sotuvlar tarixi bo\'sh</p>';
@@ -772,13 +780,13 @@ function renderDetailedHistory() {
             return `
                 <div class="history-card ${isPaid ? 'paid-border' : ''}">
                     <div class="history-header">
-                        <h4>${t.name} ${isPaid ? '✅' : '⏳'}</h4>
+                        <h4>${t.name || 'Ishchi'} ${isPaid ? '✅' : '⏳'}</h4>
                         <span style="color: ${isPaid ? 'var(--accent-emerald)' : '#f59e0b'}">${isPaid ? 'To\'langan' : 'To\'lanmagan'}</span>
                     </div>
                     <div class="history-details">
-                        <div class="history-sub-item"><span>Ish:</span> <b>${t.itemName}</b></div>
-                        <div class="history-sub-item"><span>Soni:</span> <b>${t.qty} dona</b></div>
-                        <div class="history-sub-item"><span>Haqqi:</span> <b>${t.total.toLocaleString()} So'm</b></div>
+                        <div class="history-sub-item"><span>Ish:</span> <b>${t.itemName || ''}</b></div>
+                        <div class="history-sub-item"><span>Soni:</span> <b>${t.qty || 0} dona</b></div>
+                        <div class="history-sub-item"><span>Haqqi:</span> <b>${(t.total || 0).toLocaleString()} So'm</b></div>
                     </div>
                 </div>
             `;
@@ -1080,7 +1088,91 @@ function checkSecurity(callback) {
     }
 }
 
-// --- Notion-Style Notepad Logic ---
+// --- Notion-Style Notepad & Drawing Logic ---
+let canvas, ctx, isDrawing = false, lastX = 0, lastY = 0;
+let drawMode = 'pen';
+
+function initCanvas() {
+    canvas = document.getElementById('notepadCanvas');
+    if (!canvas) return;
+    ctx = canvas.getContext('2d');
+
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+
+    ctx.strokeStyle = '#37352f';
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 2;
+
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', stopDrawing);
+    canvas.addEventListener('mouseout', stopDrawing);
+
+    // Touch support for mobiles
+    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); startDrawing(e.touches[0]); });
+    canvas.addEventListener('touchmove', (e) => { e.preventDefault(); draw(e.touches[0]); });
+    canvas.addEventListener('touchend', stopDrawing);
+
+    if (state.notepadDrawing) {
+        const img = new Image();
+        img.onload = () => ctx.drawImage(img, 0, 0);
+        img.src = state.notepadDrawing;
+    }
+}
+
+function startDrawing(e) {
+    isDrawing = true;
+    const rect = canvas.getBoundingClientRect();
+    if (e.clientX !== undefined) {
+        [lastX, lastY] = [e.clientX - rect.left, e.clientY - rect.top];
+    } else {
+        [lastX, lastY] = [e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top];
+    }
+}
+
+function draw(e) {
+    if (!isDrawing) return;
+    const rect = canvas.getBoundingClientRect();
+    let x, y;
+    if (e.clientX !== undefined) {
+        x = e.clientX - rect.left;
+        y = e.clientY - rect.top;
+    } else {
+        x = e.touches[0].clientX - rect.left;
+        y = e.touches[0].clientY - rect.top;
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(x, y);
+    ctx.strokeStyle = drawMode === 'eraser' ? '#fafafa' : '#37352f';
+    ctx.lineWidth = drawMode === 'eraser' ? 20 : 2;
+    ctx.stroke();
+    [lastX, lastY] = [x, y];
+}
+
+function stopDrawing() {
+    if (isDrawing) {
+        isDrawing = false;
+        saveNotepad();
+    }
+}
+
+function clearCanvas() {
+    if (!confirm("Chizilgan rasm o'chirilsinmi?")) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    saveNotepad();
+}
+
+function setMode(m) {
+    drawMode = m;
+    document.getElementById('penBtn').classList.toggle('active', m === 'pen');
+    document.getElementById('eraserBtn').classList.toggle('active', m === 'eraser');
+}
+
 function toggleNotepad() {
     const drawer = document.getElementById('notepadDrawer');
     const overlay = document.getElementById('notepadOverlay');
@@ -1090,15 +1182,17 @@ function toggleNotepad() {
 
         if (drawer.classList.contains('active')) {
             document.getElementById('notepadTextarea').value = state.notepad || "";
-            document.getElementById('notepadTextarea').focus();
+            setTimeout(initCanvas, 300); // Allow drawer transition to finish
         }
     }
 }
 
 function saveNotepad() {
-    const txt = document.getElementById('notepadTextarea').value;
-    state.notepad = txt;
-    save(); // Direct save for real-time feel
+    state.notepad = document.getElementById('notepadTextarea').value;
+    if (canvas) {
+        state.notepadDrawing = canvas.toDataURL();
+    }
+    save();
 }
 
 // System Backup: Export entire state as JSON

@@ -128,8 +128,16 @@ header h1 {
 
 .main-content {
     display: grid;
-    grid-template-columns: 1fr 380px;
+    grid-template-columns: 1fr 420px;
     gap: 1.5rem;
+    align-items: start;
+}
+
+#reportSidebar {
+    position: sticky;
+    top: 1.5rem;
+    height: auto;
+    z-index: 100;
 }
 
 .form-row {
