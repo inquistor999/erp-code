@@ -231,6 +231,9 @@ function submitPendingWork() {
         createdAt: new Date().toISOString()
     });
 
+    console.log("Worker added to Ojidaniya:", workerName);
+    alert("Ojidaniya: Ishchi muvaffaqiyatli qo'shildi! ✅");
+
     document.getElementById('pendingAddForm').style.display = 'none';
     // Clear inputs
     document.getElementById('pWorkerName').value = '';
@@ -266,11 +269,16 @@ function showView(viewId, btn) {
     document.querySelectorAll('.nav-buttons .btn-thin').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
 
-    const views = ['productionView', 'salesView', 'salariesView', 'skladView', 'ojidaniyaView', 'tarixView'];
     views.forEach(v => {
         const el = document.getElementById(v);
         if (el) el.style.display = (v === viewId + 'View') ? 'block' : 'none';
     });
+
+    // Final safety: ensure productionView is hidden if not explicitly requested
+    if (viewId !== 'production') {
+        const prod = document.getElementById('productionView');
+        if (prod) prod.style.display = 'none';
+    }
 
     updateUI();
 }
@@ -405,7 +413,8 @@ function submitUniversalAdd() {
         }
     }
 
-    alert("Saqlandi!");
+    alert("Sklad: Tovar muvaffaqiyatli qo'shildi! ✅");
+    console.log("Material/Product added to Sklad:", name);
     document.getElementById('universalAddForm').style.display = 'none';
     resetForms();
     updateUI(); // Instant update
@@ -528,88 +537,89 @@ function toggleSalaryPayment(taskId) {
 
 // --- UI Rendering ---
 function updateUI() {
-    const dStr = state.filterDate;    // Display Date
-    const displayDateEl = document.getElementById('currentDateDisplay');
-    if (displayDateEl) displayDateEl.innerText = "Bugun: " + formatDateForUI(state.filterDate);
+    try {
+        const dStr = state.filterDate;    // Display Date
+        const displayDateEl = document.getElementById('currentDateDisplay');
+        if (displayDateEl) displayDateEl.innerText = "Bugun: " + formatDateForUI(state.filterDate);
 
-    // Update Notepad Ref if open
-    const notepadField = document.getElementById('notepadTextarea');
-    if (notepadField && document.getElementById('notepadDrawer').classList.contains('active')) {
-        notepadField.value = state.notepad || "";
-    }
+        // Update Notepad Ref if open
+        const notepadField = document.getElementById('notepadTextarea');
+        if (notepadField && document.getElementById('notepadDrawer').classList.contains('active')) {
+            notepadField.value = state.notepad || "";
+        }
 
-    const dayData = state.history[dStr] || { production: [], sales: [] };
+        const dayData = state.history[dStr] || { production: [], sales: [] };
 
-    // Dashboard
-    const balEl = document.getElementById('todayProfit');
-    if (balEl) {
-        // Balans faqat jami sotuv (revenue) ni ko'rsatadi
-        balEl.innerText = state.totalBalance.toLocaleString() + " So'm";
-        balEl.className = 'stat-value positive'; // Har doim yashil/ijobiy
-    }
+        // Dashboard
+        const balEl = document.getElementById('todayProfit');
+        if (balEl) {
+            // Balans faqat jami sotuv (revenue) ni ko'rsatadi
+            balEl.innerText = state.totalBalance.toLocaleString() + " So'm";
+            balEl.className = 'stat-value positive'; // Har doim yashil/ijobiy
+        }
 
-    // Logic for Chiqim (Production Mat Costs + PAID Salaries)
-    let dProdMatExp = dayData.production.reduce((a, b) => a + (b.matCost || 0), 0);
-    let tasks = calculateSalaries(dayData);
-    let paidTaskIds = dayData.paidWorkers || [];
-    let paidSalAmount = 0;
+        // Logic for Chiqim (Production Mat Costs + PAID Salaries)
+        let dProdMatExp = dayData.production.reduce((a, b) => a + (b.matCost || 0), 0);
+        let tasks = calculateSalaries(dayData);
+        let paidTaskIds = dayData.paidWorkers || [];
+        let paidSalAmount = 0;
 
-    tasks.forEach(task => {
-        if (paidTaskIds.includes(task.id)) paidSalAmount += task.total;
-    });
+        tasks.forEach(task => {
+            if (paidTaskIds.includes(task.id)) paidSalAmount += task.total;
+        });
 
-    let totalTaskCount = tasks.length;
-    let salaryPercent = totalTaskCount > 0 ? Math.round((paidTaskIds.length / totalTaskCount) * 100) : 0;
+        let totalTaskCount = tasks.length;
+        let salaryPercent = totalTaskCount > 0 ? Math.round((paidTaskIds.length / totalTaskCount) * 100) : 0;
 
-    let dRev = dayData.sales.reduce((a, b) => a + (b.qty * b.price), 0);
-    let dTotalExp = dProdMatExp + paidSalAmount;
-    let dProfit = dRev - dTotalExp;
+        let dRev = dayData.sales.reduce((a, b) => a + (b.qty * b.price), 0);
+        let dTotalExp = dProdMatExp + paidSalAmount;
+        let dProfit = dRev - dTotalExp;
 
-    document.getElementById('todaySalesCount').innerText = dayData.sales.reduce((a, b) => a + b.qty, 0) + " dona";
-    document.getElementById('todayExpense').innerText = dTotalExp.toLocaleString() + " So'm";
-    document.getElementById('avgMargin').innerText = dProfit.toLocaleString() + " So'm";
+        document.getElementById('todaySalesCount').innerText = dayData.sales.reduce((a, b) => a + b.qty, 0) + " dona";
+        document.getElementById('todayExpense').innerText = dTotalExp.toLocaleString() + " So'm";
+        document.getElementById('avgMargin').innerText = dProfit.toLocaleString() + " So'm";
 
-    // Selects
-    const saleProdSelect = document.getElementById('saleProduct');
-    if (saleProdSelect) {
-        saleProdSelect.innerHTML = state.products.filter(p => p.qty > 0).map(p => `<option value="${p.name}">${p.name} (${p.qty} dona)</option>`).join('');
-    }
+        // Selects
+        const saleProdSelect = document.getElementById('saleProduct');
+        if (saleProdSelect) {
+            saleProdSelect.innerHTML = state.products.filter(p => p.qty > 0).map(p => `<option value="${p.name}">${p.name} (${p.qty} dona)</option>`).join('');
+        }
 
-    // Sidebar Reports
-    const prodRep = document.getElementById('productionReportItems');
-    if (prodRep) prodRep.innerHTML = dayData.production.map(p => `<div class="report-item"><span>${p.name} (x${p.qty})</span> <span>-${(p.matCost || 0).toLocaleString()}</span></div>`).join('') || '<p style="font-size:0.8rem; opacity:0.6;">Yo\'q</p>';
+        // Sidebar Reports
+        const prodRep = document.getElementById('productionReportItems');
+        if (prodRep) prodRep.innerHTML = dayData.production.map(p => `<div class="report-item"><span>${p.name} (x${p.qty})</span> <span>-${(p.matCost || 0).toLocaleString()}</span></div>`).join('') || '<p style="font-size:0.8rem; opacity:0.6;">Yo\'q</p>';
 
-    const salesRep = document.getElementById('salesReportItems');
-    if (salesRep) salesRep.innerHTML = dayData.sales.map(s => `<div class="report-item"><span>${s.name} (x${s.qty})</span> <span>+${(s.qty * s.price).toLocaleString()}</span></div>`).join('') || '<p style="font-size:0.8rem; opacity:0.6;">Yo\'q</p>';
+        const salesRep = document.getElementById('salesReportItems');
+        if (salesRep) salesRep.innerHTML = dayData.sales.map(s => `<div class="report-item"><span>${s.name} (x${s.qty})</span> <span>+${(s.qty * s.price).toLocaleString()}</span></div>`).join('') || '<p style="font-size:0.8rem; opacity:0.6;">Yo\'q</p>';
 
-    // Sidebar Salaries %
-    const salRep = document.getElementById('salariesBriefReport');
-    if (salRep) {
-        salRep.innerHTML = `
+        // Sidebar Salaries %
+        const salRep = document.getElementById('salariesBriefReport');
+        if (salRep) {
+            salRep.innerHTML = `
             <div class="report-item"><span>To'langan:</span> <b>${paidSalAmount.toLocaleString()}</b></div>
             <div class="report-item"><span>Progress:</span> <b class="${salaryPercent === 100 ? 'positive' : ''}">${salaryPercent}%</b></div>
         `;
-    }
+        }
 
-    document.getElementById('sideRevenue').innerText = dRev.toLocaleString();
-    document.getElementById('sideExpense').innerText = dTotalExp.toLocaleString();
-    document.getElementById('sideProfit').innerText = (dRev - dTotalExp).toLocaleString();
+        document.getElementById('sideRevenue').innerText = dRev.toLocaleString();
+        document.getElementById('sideExpense').innerText = dTotalExp.toLocaleString();
+        document.getElementById('sideProfit').innerText = (dRev - dTotalExp).toLocaleString();
 
-    // Sklad Render with Search
-    const skladList = document.getElementById('sidebarList');
-    const skladBanner = document.getElementById('skladTotalValueBanner');
-    const skladTotalValueEl = document.getElementById('skladTotalValue');
-    const searchTerm = (document.getElementById('skladSearch')?.value || "").toLowerCase();
+        // Sklad Render with Search
+        const skladList = document.getElementById('sidebarList');
+        const skladBanner = document.getElementById('skladTotalValueBanner');
+        const skladTotalValueEl = document.getElementById('skladTotalValue');
+        const searchTerm = (document.getElementById('skladSearch')?.value || "").toLowerCase();
 
-    if (skladList) {
-        if (state.currentInventoryTab === 'ready') {
-            let totalSkladValue = 0;
-            const filteredProducts = state.products.filter(p => p.name.toLowerCase().includes(searchTerm));
+        if (skladList) {
+            if (state.currentInventoryTab === 'ready') {
+                let totalSkladValue = 0;
+                const filteredProducts = state.products.filter(p => p.name.toLowerCase().includes(searchTerm));
 
-            skladList.innerHTML = filteredProducts.map((p) => {
-                const itemTotal = p.qty * (p.costPrice || 0);
-                totalSkladValue += itemTotal;
-                return `
+                skladList.innerHTML = filteredProducts.map((p) => {
+                    const itemTotal = p.qty * (p.costPrice || 0);
+                    totalSkladValue += itemTotal;
+                    return `
                     <div class="inventory-item">
                         <div class="inventory-item-details">
                             <span>${p.name} <span class="item-badge ${p.qty > 5 ? 'badge-ok' : 'badge-low'}">${p.qty} dona</span></span>
@@ -618,20 +628,20 @@ function updateUI() {
                         <button class="delete-icon-btn" onclick="deleteSkladItem('product', '${p.id}')">🗑️</button>
                     </div>
                 `;
-            }).join('') || `
+                }).join('') || `
                 <div class="empty-state">
                     <p style="font-size: 1.2rem; margin-bottom: 0.5rem;">✨</p>
                     <p>"${searchTerm}" bo'yicha hech narsa topilmadi</p>
                 </div>
             `;
 
-            if (skladBanner) {
-                skladBanner.style.display = 'flex';
-                skladTotalValueEl.innerText = totalSkladValue.toLocaleString() + " So'm";
-            }
-        } else {
-            const filteredMaterials = state.materials.filter(m => m.name.toLowerCase().includes(searchTerm));
-            skladList.innerHTML = filteredMaterials.map((m) => `
+                if (skladBanner) {
+                    skladBanner.style.display = 'flex';
+                    skladTotalValueEl.innerText = totalSkladValue.toLocaleString() + " So'm";
+                }
+            } else {
+                const filteredMaterials = state.materials.filter(m => m.name.toLowerCase().includes(searchTerm));
+                skladList.innerHTML = filteredMaterials.map((m) => `
                 <div class="inventory-item">
                     <span>${m.name} <span class="item-badge ${m.stock > 10 ? 'badge-ok' : 'badge-low'}">${m.stock} m</span></span>
                     <button class="delete-icon-btn" onclick="deleteSkladItem('material', '${m.id}')">🗑️</button>
@@ -643,22 +653,25 @@ function updateUI() {
                 </div>
             `;
 
-            if (skladBanner) skladBanner.style.display = 'none';
-            skladTotalValueEl.innerText = "";
+                if (skladBanner) skladBanner.style.display = 'none';
+                skladTotalValueEl.innerText = "";
+            }
         }
+
+        // Refresh Production Selects if any are open
+        document.querySelectorAll('.row-mat-id').forEach(select => {
+            const currentVal = select.value;
+            select.innerHTML = state.materials.map(m => `<option value="${m.id}" ${m.id === currentVal ? 'selected' : ''}>${m.name} (${m.stock}m)</option>`).join('');
+        });
+
+        // Workers & History
+        renderDailySalaries();
+        renderOjidaniya(); // New
+        renderDetailedHistory();
+        updateDatePicker();
+    } catch (e) {
+        console.error("UI update error:", e);
     }
-
-    // Refresh Production Selects if any are open
-    document.querySelectorAll('.row-mat-id').forEach(select => {
-        const currentVal = select.value;
-        select.innerHTML = state.materials.map(m => `<option value="${m.id}" ${m.id === currentVal ? 'selected' : ''}>${m.name} (${m.stock}m)</option>`).join('');
-    });
-
-    // Workers & History
-    renderDailySalaries();
-    renderOjidaniya(); // New
-    renderDetailedHistory();
-    updateDatePicker();
 }
 
 function calculateSalaries(dayData) {
