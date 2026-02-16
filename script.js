@@ -25,12 +25,14 @@ const DEFAULT_STATE = {
     history: {},
     pendingWork: [],
     notepad: "",
-    notepadDrawing: "", // Added for canvas base64
+    aiMessages: [],
     totalBalance: 0,
     currentInventoryTab: 'ready',
     currentHistoryTab: 'prod_hist',
     filterDate: ""
 };
+
+const UI_VIEWS = ['productionView', 'salesView', 'salariesView', 'skladView', 'ojidaniyaView', 'tarixView'];
 
 // Start with LocalStorage or Default
 let localData = localStorage.getItem('calibri_erp_state');
@@ -269,7 +271,7 @@ function showView(viewId, btn) {
     document.querySelectorAll('.nav-buttons .btn-thin').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
 
-    views.forEach(v => {
+    UI_VIEWS.forEach(v => {
         const el = document.getElementById(v);
         if (el) el.style.display = (v === viewId + 'View') ? 'block' : 'none';
     });
@@ -1101,89 +1103,98 @@ function checkSecurity(callback) {
     }
 }
 
-// --- Notion-Style Notepad & Drawing Logic ---
-let canvas, ctx, isDrawing = false, lastX = 0, lastY = 0;
-let drawMode = 'pen';
+// --- AI Notepad Logic ---
+let aiMessages = state.aiMessages || [
+    { role: 'bot', text: 'Salom! Men sizning aqlli yordamchingizman. Sklad, ojidaniya yoki buyurtmalar haqida so\'rashingiz mumkin.' }
+];
 
-function initCanvas() {
-    canvas = document.getElementById('notepadCanvas');
-    if (!canvas) return;
-    ctx = canvas.getContext('2d');
+function switchNotepadTab(tab) {
+    document.querySelectorAll('.premium-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.notepad-tab-content').forEach(c => c.classList.remove('active'));
 
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-
-    ctx.strokeStyle = '#37352f';
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.lineWidth = 2;
-
-    canvas.addEventListener('mousedown', startDrawing);
-    canvas.addEventListener('mousemove', draw);
-    canvas.addEventListener('mouseup', stopDrawing);
-    canvas.addEventListener('mouseout', stopDrawing);
-
-    // Touch support for mobiles
-    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); startDrawing(e.touches[0]); });
-    canvas.addEventListener('touchmove', (e) => { e.preventDefault(); draw(e.touches[0]); });
-    canvas.addEventListener('touchend', stopDrawing);
-
-    if (state.notepadDrawing) {
-        const img = new Image();
-        img.onload = () => ctx.drawImage(img, 0, 0);
-        img.src = state.notepadDrawing;
-    }
-}
-
-function startDrawing(e) {
-    isDrawing = true;
-    const rect = canvas.getBoundingClientRect();
-    if (e.clientX !== undefined) {
-        [lastX, lastY] = [e.clientX - rect.left, e.clientY - rect.top];
+    if (tab === 'text') {
+        document.getElementById('tabTextBtn').classList.add('active');
+        document.getElementById('notepadTextContent').classList.add('active');
     } else {
-        [lastX, lastY] = [e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top];
+        document.getElementById('tabAiBtn').classList.add('active');
+        document.getElementById('notepadAiContent').classList.add('active');
+        renderAiChat();
     }
 }
 
-function draw(e) {
-    if (!isDrawing) return;
-    const rect = canvas.getBoundingClientRect();
-    let x, y;
-    if (e.clientX !== undefined) {
-        x = e.clientX - rect.left;
-        y = e.clientY - rect.top;
-    } else {
-        x = e.touches[0].clientX - rect.left;
-        y = e.touches[0].clientY - rect.top;
+function handleAiKey(e) {
+    if (e.key === 'Enter') askAi();
+}
+
+function askAi() {
+    const input = document.getElementById('aiInput');
+    const text = input.value.trim();
+    if (!text) return;
+
+    aiMessages.push({ role: 'user', text });
+    input.value = '';
+    renderAiChat();
+
+    state.aiMessages = aiMessages;
+    save();
+
+    // Show Typing Indicator
+    const indicator = document.getElementById('aiTypingIndicator');
+    if (indicator) indicator.style.display = 'flex';
+
+    // AI "Thinking" and Response
+    setTimeout(() => {
+        if (indicator) indicator.style.display = 'none';
+        const response = generateAiResponse(text);
+        aiMessages.push({ role: 'bot', text: response });
+        state.aiMessages = aiMessages;
+        save();
+        renderAiChat();
+    }, 1200); // Longer delay for "premium" feel
+}
+
+function renderAiChat() {
+    const history = document.getElementById('aiChatHistory');
+    if (!history) return;
+    history.innerHTML = aiMessages.map(m => `
+        <div class="ai-message ${m.role}">
+            <b>${m.role === 'bot' ? 'Calibri AI' : 'Siz'}:</b> ${m.text}
+        </div>
+    `).join('');
+    history.scrollTop = history.scrollHeight;
+}
+
+// Final personality polish
+function generateAiResponse(query) {
+    const q = query.toLowerCase();
+
+    if (q.includes('salom') || q.includes('assalom')) return "Salom! Men Calibri AI adminisratsiya yordamchisiman. Bugun sizga qanday yordam bera olaman? Sizning barcha ma'lumotlaringizni nazorat qilib turibman.";
+
+    if (q.includes('kimsa') || q.includes('ismin')) return "Men Calibri ERP tizimining o'zagi (Core AI) hisoblanaman. Mening vazifam sizning biznesingizni tahlil qilish va savollaringizga javob berish.";
+
+    if (q.includes('sklad') || q.includes('tovar') || q.includes('ombor')) {
+        const productsCount = state.products.length;
+        const totalItems = state.products.reduce((a, b) => a + b.qty, 0);
+        return `Skladda hozirda ${productsCount} ta turdagi maxsulot bor. Jami miqdori ${totalItems} dona. Tahlil natijasiga ko'rа, omboringiz holati yaxshi.`;
     }
 
-    ctx.beginPath();
-    ctx.moveTo(lastX, lastY);
-    ctx.lineTo(x, y);
-    ctx.strokeStyle = drawMode === 'eraser' ? '#fafafa' : '#37352f';
-    ctx.lineWidth = drawMode === 'eraser' ? 20 : 2;
-    ctx.stroke();
-    [lastX, lastY] = [x, y];
-}
-
-function stopDrawing() {
-    if (isDrawing) {
-        isDrawing = false;
-        saveNotepad();
+    if (q.includes('ojidaniya') || q.includes('kutish')) {
+        const count = state.pendingWork.length;
+        if (count === 0) return "Hozircha hech qanday ish 'Ojidaniya'da emas. Hamma ishchilar o'z ishlarini topshirishgan.";
+        return `Ojidaniyada hozirda ${count} ta ish faol holatda turibdi. Ishchilarni nazorat qilishni unutmang.`;
     }
-}
 
-function clearCanvas() {
-    if (!confirm("Chizilgan rasm o'chirilsinmi?")) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    saveNotepad();
-}
+    if (q.includes('balans') || q.includes('foyda') || q.includes('pul')) {
+        return `Xozirda jami balansingiz: ${state.totalBalance.toLocaleString()} So'm. Bu summani yanada ko'paytirish uchun sotuvlarni oshirishni maslaxat beraman.`;
+    }
 
-function setMode(m) {
-    drawMode = m;
-    document.getElementById('penBtn').classList.toggle('active', m === 'pen');
-    document.getElementById('eraserBtn').classList.toggle('active', m === 'eraser');
+    if (q.includes('maosh') || q.includes('oylik')) {
+        const tasks = calculateSalaries(state.history[state.filterDate] || { production: [] });
+        const total = tasks.reduce((a, b) => a + b.total, 0);
+        return `Bugun uchun jami ishchilar maoshi ${total.toLocaleString()} So'm qilib hisoblandi. Bu raqamlar orqali xarajatlarni tahlil qilishingiz mumkin.`;
+    }
+
+    return "Tushundim. Bu ma'lumotni tahlil qilyapman. Men sizga Calibri ERP tizimining har bir bo'limi bo'ycha yordam bera olaman. Savolingizni aniqroq bering va men sizni hayron qoldiraman!";
 }
 
 function toggleNotepad() {
@@ -1195,16 +1206,12 @@ function toggleNotepad() {
 
         if (drawer.classList.contains('active')) {
             document.getElementById('notepadTextarea').value = state.notepad || "";
-            setTimeout(initCanvas, 300); // Allow drawer transition to finish
         }
     }
 }
 
 function saveNotepad() {
     state.notepad = document.getElementById('notepadTextarea').value;
-    if (canvas) {
-        state.notepadDrawing = canvas.toDataURL();
-    }
     save();
 }
 

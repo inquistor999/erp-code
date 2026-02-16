@@ -285,28 +285,36 @@
             <div class="notepad-close" onclick="toggleNotepad()">✕</div>
         </div>
         <div class="notepad-body">
-            <div class="notepad-tabs">
-                <button id="tabTextBtn" class="notepad-tab active" onclick="switchNotepadTab('text')">Matin</button>
-                <button id="tabAiBtn" class="notepad-tab" onclick="switchNotepadTab('ai')">AI Yordamchi</button>
+            <div class="notepad-premium-tabs">
+                <button id="tabTextBtn" class="premium-tab active" onclick="switchNotepadTab('text')">
+                    <span class="tab-icon">📝</span> Matin
+                </button>
+                <button id="tabAiBtn" class="premium-tab" onclick="switchNotepadTab('ai')">
+                    <span class="tab-icon">✨</span> Calibri AI
+                </button>
             </div>
 
             <div id="notepadTextContent" class="notepad-tab-content active">
-                <textarea id="notepadTextarea" class="notepad-textarea"
-                    placeholder="Bu yerda istalgan narsani yozishingiz mumkin. Avtomatik saqlanadi..."
+                <textarea id="notepadTextarea" class="notepad-textarea" placeholder="Writie anything here..."
                     oninput="saveNotepad()"></textarea>
             </div>
 
             <div id="notepadAiContent" class="notepad-tab-content">
-                <div id="aiChatHistory" class="ai-chat-history">
-                    <div class="ai-message bot">
-                        <b>Calibri AI:</b> Salom! Men sizning aqlli yordamchingizman. Sklad, ojidaniya yoki buyurtmalar
-                        haqida so'rashingiz mumkin.
+                <div class="ai-chat-container">
+                    <div id="aiChatHistory" class="ai-chat-history">
+                        <!-- AI context history -->
                     </div>
                 </div>
                 <div class="ai-chat-input-row">
-                    <input type="text" id="aiInput" placeholder="Savol bering... (masalan: Skladda nimalar bor?)"
+                    <input type="text" id="aiInput" placeholder="Sklad yoki Ojidaniya haqida biron narsa so'rang..."
                         onkeypress="handleAiKey(event)">
-                    <button class="ai-send-btn" onclick="askAi()">✈️</button>
+                    <button class="ai-send-btn" onclick="askAi()">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                    </button>
                 </div>
             </div>
         </div>
