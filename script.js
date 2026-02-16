@@ -268,18 +268,28 @@ function calculateDaysPassed(createdAt) {
 // --- Navigation ---
 function showView(viewId, btn) {
     if (!btn) return;
+    console.log("Navigating to:", viewId);
+
+    // Update Nav Buttons
     document.querySelectorAll('.nav-buttons .btn-thin').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
 
+    // Toggle Views with High Priority
     UI_VIEWS.forEach(v => {
         const el = document.getElementById(v);
-        if (el) el.style.display = (v === viewId + 'View') ? 'block' : 'none';
+        if (el) {
+            if (v === viewId + 'View') {
+                el.style.setProperty('display', 'block', 'important');
+            } else {
+                el.style.setProperty('display', 'none', 'important');
+            }
+        }
     });
 
     // Final safety: ensure productionView is hidden if not explicitly requested
     if (viewId !== 'production') {
         const prod = document.getElementById('productionView');
-        if (prod) prod.style.display = 'none';
+        if (prod) prod.style.setProperty('display', 'none', 'important');
     }
 
     updateUI();
@@ -546,8 +556,10 @@ function updateUI() {
 
         // Update Notepad Ref if open
         const notepadField = document.getElementById('notepadTextarea');
-        if (notepadField && document.getElementById('notepadDrawer').classList.contains('active')) {
-            notepadField.value = state.notepad || "";
+        if (notepadField && document.getElementById('notepadDrawer')) {
+            if (document.getElementById('notepadDrawer').classList.contains('active')) {
+                notepadField.value = state.notepad || "";
+            }
         }
 
         const dayData = state.history[dStr] || { production: [], sales: [] };
@@ -1104,9 +1116,17 @@ function checkSecurity(callback) {
 }
 
 // --- AI Notepad Logic ---
-let aiMessages = state.aiMessages || [
-    { role: 'bot', text: 'Salom! Men sizning aqlli yordamchingizman. Sklad, ojidaniya yoki buyurtmalar haqida so\'rashingiz mumkin.' }
-];
+let aiMessages = [];
+
+function initAiChat() {
+    if (state.aiMessages && state.aiMessages.length > 0) {
+        aiMessages = [...state.aiMessages];
+    } else {
+        aiMessages = [
+            { role: 'bot', text: 'Salom! Men sizning aqlli yordamchingizman. Sklad, ojidaniya yoki buyurtmalar haqida so\'rashingiz mumkin.' }
+        ];
+    }
+}
 
 function switchNotepadTab(tab) {
     document.querySelectorAll('.premium-tab').forEach(t => t.classList.remove('active'));
@@ -1245,7 +1265,12 @@ function secureDelete(callback) {
 
 // Init
 window.onload = () => {
+    initAiChat();
     addMaterialRow();
     addWorkerRow();
     updateUI();
+    // Default to production view safely
+    const prodBtn = document.querySelector('.nav-buttons button');
+    if (prodBtn) showView('production', prodBtn);
+    renderAiChat(); // In case AI tab is active
 };

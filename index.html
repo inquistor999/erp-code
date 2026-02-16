@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Calibri</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=10">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -117,7 +117,7 @@
                 </div>
 
                 <!-- Sales Form -->
-                <div class="glass-card" id="salesView" style="display: none;">
+                <div class="glass-card" id="salesView" style="display: none !important;">
                     <h3 style="margin-bottom: 1.25rem;">Sotuvni Qayd Etish</h3>
                     <div class="form-row">
                         <div class="input-group">
@@ -133,7 +133,7 @@
                     </div>
                     <div class="form-row">
                         <div class="input-group">
-                            <label>Sotuv Narxi (1 dona üçün)</label>
+                            <label>Sotuv Narxi (1 dona uchun)</label>
                             <input type="number" id="salePrice" placeholder="0 So'm">
                         </div>
                     </div>
@@ -141,7 +141,7 @@
                 </div>
 
                 <!-- Salaries View -->
-                <div class="glass-card" id="salariesView" style="display: none;">
+                <div class="glass-card" id="salariesView" style="display: none !important;">
                     <h3 style="margin-bottom: 1.25rem;">Ishchilar Maoshi</h3>
                     <div id="dailySalariesList">
                         <!-- List of workers and their total daily pay -->
@@ -149,7 +149,7 @@
                 </div>
 
                 <!-- Sklad View (Renamed from Inventory) -->
-                <div class="glass-card" id="skladView" style="display: none;">
+                <div class="glass-card" id="skladView" style="display: none !important;">
                     <div class="sklad-header">
                         <h3>Sklad (Ombor)</h3>
                         <div class="add-product-btn" onclick="openAddModal()">+</div>
@@ -208,7 +208,7 @@
                 </div>
 
                 <!-- Ojidaniya View -->
-                <div class="glass-card" id="ojidaniyaView" style="display: none;">
+                <div class="glass-card" id="ojidaniyaView" style="display: none !important;">
                     <div
                         style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                         <h3>Ojidaniya (Kutishdagi ishlar)</h3>
@@ -220,7 +220,7 @@
                 </div>
 
                 <!-- Tarix View -->
-                <div class="glass-card" id="tarixView" style="display: none;">
+                <div class="glass-card" id="tarixView" style="display: none !important;">
                     <h3 style="margin-bottom: 1.25rem;">Amallar Tarixi</h3>
                     <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
                         <button class="btn-thin active" onclick="setHistoryTab('prod_hist', this)">Ishlab
@@ -320,7 +320,7 @@
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=10"></script>
     <!-- Pending Work Modal -->
     <div id="pendingAddForm" class="modal-overlay" style="display: none;">
         <div class="glass-card modal-content" style="max-width: 400px; width: 90%;">
