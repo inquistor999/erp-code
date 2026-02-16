@@ -285,24 +285,30 @@
             <div class="notepad-close" onclick="toggleNotepad()">✕</div>
         </div>
         <div class="notepad-body">
-            <div class="notepad-divider"></div>
-            <!-- Drawing Canvas Integration -->
-            <div class="canvas-container"
-                style="position: relative; flex: 1; min-height: 250px; background: #fafafa; border-radius: 8px; margin-bottom: 10px; border: 1px solid #eee;">
-                <canvas id="notepadCanvas" style="width: 100%; height: 100%; cursor: crosshair;"></canvas>
-                <div class="canvas-controls"
-                    style="position: absolute; bottom: 10px; right: 10px; display: flex; gap: 5px;">
-                    <button class="btn-thin" style="padding: 2px 8px; background: white; color: #333;"
-                        onclick="clearCanvas()">🧹</button>
-                    <button id="penBtn" class="btn-thin active"
-                        style="padding: 2px 8px; background: white; color: #333;" onclick="setMode('pen')">✏️</button>
-                    <button id="eraserBtn" class="btn-thin" style="padding: 2px 8px; background: white; color: #333;"
-                        onclick="setMode('eraser')">🧽</button>
+            <div class="notepad-tabs">
+                <button id="tabTextBtn" class="notepad-tab active" onclick="switchNotepadTab('text')">Matin</button>
+                <button id="tabAiBtn" class="notepad-tab" onclick="switchNotepadTab('ai')">AI Yordamchi</button>
+            </div>
+
+            <div id="notepadTextContent" class="notepad-tab-content active">
+                <textarea id="notepadTextarea" class="notepad-textarea"
+                    placeholder="Bu yerda istalgan narsani yozishingiz mumkin. Avtomatik saqlanadi..."
+                    oninput="saveNotepad()"></textarea>
+            </div>
+
+            <div id="notepadAiContent" class="notepad-tab-content">
+                <div id="aiChatHistory" class="ai-chat-history">
+                    <div class="ai-message bot">
+                        <b>Calibri AI:</b> Salom! Men sizning aqlli yordamchingizman. Sklad, ojidaniya yoki buyurtmalar
+                        haqida so'rashingiz mumkin.
+                    </div>
+                </div>
+                <div class="ai-chat-input-row">
+                    <input type="text" id="aiInput" placeholder="Savol bering... (masalan: Skladda nimalar bor?)"
+                        onkeypress="handleAiKey(event)">
+                    <button class="ai-send-btn" onclick="askAi()">✈️</button>
                 </div>
             </div>
-            <textarea id="notepadTextarea" class="notepad-textarea"
-                placeholder="Bu yerda istalgan narsani yozishingiz mumkin. Avtomatik saqlanadi..."
-                oninput="saveNotepad()"></textarea>
         </div>
     </div>
 
