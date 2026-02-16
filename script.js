@@ -1,3 +1,15 @@
+// --- Global Error Handler (Anti-Crash) ---
+window.onerror = function (message, source, lineno, colno, error) {
+    console.error("Global Error Caught:", message, error);
+    const modal = document.getElementById('globalErrorModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        modal.querySelector('p').innerText = `Xatolik: ${message}`;
+    }
+    const loader = document.getElementById('loader');
+    if (loader) loader.style.display = 'none'; // Ensure loader doesn't block error
+};
+
 // --- Firebase Configuration (TO BE UPDATED BY USER) ---
 const firebaseConfig = {
     apiKey: "AIzaSyA0CzLLQlNarK48BqixUKXt66ZbBROgMaU",
@@ -146,49 +158,73 @@ dbRef.once('value').then((snapshot) => {
         console.log("Cloud is empty. Using local as source of truth.");
     }
 
-    // MANUAL DATE FIX: Do NOT override state.filterDate with current date on sync
-    // state.filterDate = currentFilterDate.replaceAll('.', '-'); 
-
     // Ensure history structure exists
     if (!state.history) state.history = {};
 
-    // Create today's entry if it doesn't exist, but don't switch to it automatically
-    // This allows the "New Day" button to be the only way to "create" a day visually if preferred,
-    // or we can just ensure the data structure exists.
-    // For now, we trust the Manual Date Picker.
+    // Create today's entry if it doesn't exist
+    const today = getTodayStr();
+    if (!state.history[today]) {
+        // Just ensure the key exists, don't force switch
+        // state.history[today] = { production: [], sales: [], paidWorkers: [] };
+    }
 
     if (!state.pendingWork) state.pendingWork = [];
     if (!state.products) state.products = [];
     if (!state.materials) state.materials = [];
-    if (!state.notepad) state.notepad = "";
-    if (!state.notepadDrawing) state.notepadDrawing = "";
+
+    updateUI();
+
+    // PREMIUM LOADING: Fade out loader only when data is fully ready
+    const loader = document.getElementById('loader');
+    if (loader) {
+        setTimeout(() => {
+            loader.style.opacity = '0';
+            setTimeout(() => { loader.style.display = 'none'; }, 500);
+        }, 800);
+    }
 
     isSynced = true;
-    localStorage.setItem('calibri_erp_state', JSON.stringify(state));
     updateUI();
-    save();
 
-    // Now switch to real-time listener for future updates
-    dbRef.on('value', (snap) => {
-        const data = snap.val();
-        if (data && isSynced) {
-            // Only update if it's a genuine new update from another client
-            // (Simple version: always update UI if isSynced is true)
-            // In a pro ERP we might check timestamps, but for now deepMerge works.
-            state = deepMergeState(state, data);
-            updateUI();
-        }
-    });
-
-    // real-time refresh pulse for absolute sync (0.5s)
-    setInterval(() => {
-        if (isSynced) updateUI();
-    }, 500);
 }).catch(err => {
     console.error("Critical Sync Error:", err);
-    isSynced = true; // Still allow local work
+    isSynced = true;
     updateUI();
+    const loader = document.getElementById('loader');
+    if (loader) loader.style.display = 'none';
 });
+
+// MANUAL DATE FIX: Do NOT override state.filterDate with current date on sync
+// state.filterDate = currentFilterDate.replaceAll('.', '-'); 
+
+// Ensure history structure exists
+if (!state.history) state.history = {};
+
+// Create today's entry if it doesn't exist, but don't switch to it automatically
+if (!state.pendingWork) state.pendingWork = [];
+if (!state.products) state.products = [];
+if (!state.materials) state.materials = [];
+if (!state.notepad) state.notepad = "";
+if (!state.notepadDrawing) state.notepadDrawing = "";
+
+isSynced = true;
+localStorage.setItem('calibri_erp_state', JSON.stringify(state));
+updateUI();
+save();
+
+// Now switch to real-time listener for future updates
+dbRef.on('value', (snap) => {
+    const data = snap.val();
+    if (data && isSynced) {
+        state = deepMergeState(state, data);
+        updateUI();
+    }
+});
+
+// real-time refresh pulse for absolute sync (0.5s)
+setInterval(() => {
+    if (isSynced) updateUI();
+}, 500);
 
 // 2. Global Save Function
 function save() {
@@ -607,14 +643,34 @@ function updateUI() {
             }
         }
 
-        const dayData = state.history[dStr] || { production: [], sales: [] };
+        // STRICT DATE ISOLATION VERIFICATION
+        // If the date doesn't exist in history, dayData is { production: [], sales: [] }
+        // We must ensure the UI purely reflects this empty state.
+        const dayData = state.history[dStr] || { production: [], sales: [], paidWorkers: [] };
 
         // Dashboard
         const balEl = document.getElementById('todayProfit');
         if (balEl) {
-            // Balans faqat jami sotuv (revenue) ni ko'rsatadi
+            // Balans (Revenue) IS cumulative for the day? Or global wallet?
+            // User request: "qaysi sanani bosib uning ichiga kiradigan bolsam faqatma faqat usha sanada bolgan xarajat sotuv lar chiqib kelishi keere"
+            // "yangi sana yaratganimda hammasi tozalangan xolatda bolishi kere"
+            // BUT "sklad , ojidaniya va notepad universal ozgarmas boladi"
+
+            // So 'todayProfit' in Dashboard is likely "Today's Revenue/Profit", NOT Global Wallet.
+            // Converting to Day-Specific logic where appropriate.
+
+            // However, state.totalBalance is currently a GLOBAL wallet. 
+            // If user wants "Today's Status", we show Day metrics.
+            // If user wants "Wallet", we show Global.
+            // Given "kunlik atchot" context, the big numbers often imply "Today".
+            // But let's keep "Balans" as Global Wallet (Money in hand), 
+            // and the stats below as Day Specific.
+
+            // Wait, previous code used state.totalBalance for the big header.
+            // Let's keep it as Global Wallet for now as it aggregates all cash.
+            // The small stats are day-specific.
             balEl.innerText = state.totalBalance.toLocaleString() + " So'm";
-            balEl.className = 'stat-value positive'; // Har doim yashil/ijobiy
+            balEl.className = 'stat-value positive';
         }
 
         // Logic for Chiqim (Production Mat Costs + PAID Salaries)
