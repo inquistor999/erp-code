@@ -166,6 +166,11 @@ dbRef.once('value').then((snapshot) => {
             updateUI();
         }
     });
+
+    // real-time refresh pulse for absolute sync (0.5s)
+    setInterval(() => {
+        if (isSynced) updateUI();
+    }, 500);
 }).catch(err => {
     console.error("Critical Sync Error:", err);
     isSynced = true; // Still allow local work
@@ -178,14 +183,13 @@ function save() {
     localStorage.setItem('calibri_erp_state', JSON.stringify(state));
 
     // Stage 2: Save to Cloud (Firebase)
-    if (!isSynced) {
-        console.warn("Cloud not yet synced. Saving locally only.");
-        return;
-    }
+    if (!isSynced) return;
 
     const cleanedState = JSON.parse(JSON.stringify(state));
     dbRef.set(cleanedState).then(() => {
         console.log("Data Saved to Cloud ☁️");
+        // Instant sync feedback
+        setTimeout(updateUI, 100);
     }).catch(err => {
         console.error("Cloud Save Error:", err);
     });
@@ -436,9 +440,9 @@ function submitUniversalAdd() {
 // --- Logic Actions ---
 
 function submitProduction() {
-    const prodName = document.getElementById('prodName').value;
+    const prodName = document.getElementById('prodName').value.trim();
     const totalQty = parseInt(document.getElementById('prodTotalQty').value);
-    if (!prodName || !totalQty) return alert("Nom va sonini kiriting!");
+    if (!prodName || !totalQty || totalQty <= 0) return alert("Mahsulot nomi va miqdorini to'g'ri kiriting!");
 
     // Gather Materials
     const matRows = document.querySelectorAll('#materialRowsContainer .dynamic-row');
@@ -446,11 +450,19 @@ function submitProduction() {
     let matTotalCostForBatch = 0;
 
     for (let row of matRows) {
-        const id = row.querySelector('.row-mat-id').value;
-        const sarf = parseFloat(row.querySelector('.row-mat-sarf').value);
-        const price = parseInt(row.querySelector('.row-mat-price').value);
+        const matIdEl = row.querySelector('.row-mat-id');
+        const sarfEl = row.querySelector('.row-mat-sarf');
+        const priceEl = row.querySelector('.row-mat-price');
+
+        if (!matIdEl || !sarfEl || !priceEl) continue;
+
+        const id = matIdEl.value;
+        const sarf = parseFloat(sarfEl.value) || 0;
+        const price = parseInt(priceEl.value) || 0;
 
         const mat = state.materials.find(m => m.id === id);
+        if (!mat) continue;
+
         const totalUsed = totalQty * sarf;
         if (mat.stock < totalUsed) return alert(`${mat.name} yetarli emas!`);
 
@@ -462,24 +474,36 @@ function submitProduction() {
     const workerRows = document.querySelectorAll('#workerRowsContainer .dynamic-row');
     let workersDone = [];
     let laborTotalCost = 0;
+
     for (let row of workerRows) {
-        const name = row.querySelector('.row-worker-name').value;
-        const qty = parseInt(row.querySelector('.row-worker-qty').value);
-        const price = parseInt(row.querySelector('.row-worker-price').value);
-        workersDone.push({ name, qty, price });
-        laborTotalCost += qty * price;
+        const nameEl = row.querySelector('.row-worker-name');
+        const qtyEl = row.querySelector('.row-worker-qty');
+        const priceEl = row.querySelector('.row-worker-price');
+
+        if (!nameEl || !qtyEl || !priceEl) continue;
+
+        const name = nameEl.value.trim();
+        const qty = parseInt(qtyEl.value) || 0;
+        const price = parseInt(priceEl.value) || 0;
+
+        if (name && qty > 0) {
+            workersDone.push({ name, qty, price });
+            laborTotalCost += qty * price;
+        }
     }
+
+    if (workersDone.length === 0) return alert("Kamida bitta ishchi va uning bajargan miqdorini kiriting!");
 
     const totalBatchExp = matTotalCostForBatch + laborTotalCost;
     const dateStr = state.filterDate || getTodayStr();
     if (!state.history[dateStr]) state.history[dateStr] = { production: [], sales: [] };
 
     state.history[dateStr].production.push({
-        id: Date.now(), // Unique ID for the production batch
+        id: Date.now(),
         name: prodName, qty: totalQty, totalExp: totalBatchExp,
         matCost: matTotalCostForBatch, laborCost: laborTotalCost,
         materials: materialsUsed,
-        workers: workersDone.map((w, idx) => ({ ...w, id: idx })), // Add internal worker index
+        workers: workersDone.map((w, idx) => ({ ...w, id: idx })),
         time: new Date().toLocaleTimeString()
     });
 
@@ -776,19 +800,22 @@ function renderDetailedHistory() {
     const dayData = state.history[dStr] || { production: [], sales: [] };
 
     if (state.currentHistoryTab === 'prod_hist') {
-        container.innerHTML = dayData.production.map(p => `
+        // Strictly PRODUCTION ONLY
+        const prodData = dayData.production || [];
+        container.innerHTML = prodData.map(p => `
             <div class="history-card">
                 <div class="history-header"><h4>${p.name || 'Nomsiz'}</h4> <span>${p.time || ''}</span></div>
                 <div class="history-details">
                     <div class="history-sub-item"><span>Umumiy soni:</span> <b>${p.qty || 0} dona</b></div>
-                    <div class="history-sub-item"><span>Materiallar:</span> <b>${(p.materials || []).map(m => m.name).join(', ') || 'Yo\'q'}</b></div>
-                    <div class="history-sub-item"><span>Ishchilar:</span> <b>${(p.workers || []).map(w => (w.name || 'Ishchi') + '(' + (w.qty || 0) + ')').join(', ') || 'Yo\'q'}</b></div>
+                    <div class="history-sub-item"><span>Ishchilar:</span> <b>${(p.workers || []).map(w => w.name).join(', ')}</b></div>
                     <div class="history-sub-item"><span>Jami xarajat:</span> <b>${(p.totalExp || 0).toLocaleString()} So'm</b></div>
                 </div>
             </div>
         `).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Ishlab chiqarish tarixi bo\'sh</p>';
     } else if (state.currentHistoryTab === 'sales_hist') {
-        container.innerHTML = dayData.sales.map(s => `
+        // Strictly SALES ONLY
+        const salesData = dayData.sales || [];
+        container.innerHTML = salesData.map(s => `
             <div class="history-card">
                 <div class="history-header"><h4>${s.name || 'Nomsiz'}</h4> <span>${s.time || ''}</span></div>
                 <div class="history-details">
@@ -800,71 +827,48 @@ function renderDetailedHistory() {
         `).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Sotuvlar tarixi bo\'sh</p>';
     } else if (state.currentHistoryTab === 'worker_hist') {
         const workerSearch = (document.getElementById('workerHistorySearch')?.value || "").toLowerCase().trim();
-        const container = document.getElementById('historyDetailedList');
-
         let html = '';
+
+        const renderWorkerCard = (t, dateKey, isPaid) => `
+            <div class="history-card ${isPaid ? 'paid-border' : ''}">
+                <div class="history-header">
+                    <h4>${t.itemName} (Sana: ${formatDateForUI(dateKey)}) ${isPaid ? '✅' : '⏳'}</h4>
+                </div>
+                <div class="history-details">
+                     <p style="font-size:0.95rem; line-height:1.5; color:rgba(255,255,255,0.9); margin-bottom:10px;">
+                        <b>Ishchilar va ularning hissasi:</b>
+                     </p>
+                     ${t.sharedWorkers.map(w => `
+                        <div style="background:rgba(255,255,255,0.05); padding:8px; border-radius:8px; margin-bottom:5px; font-size:0.85rem;">
+                            <b>${w.name}</b> ${w.qty} dona tikdi. 
+                            Har biri uchun ${(w.price || 0).toLocaleString()} So'mdan, 
+                            jami <b>${(w.qty * w.price).toLocaleString()} So'm</b>.
+                        </div>
+                     `).join('')}
+                </div>
+            </div>
+        `;
+
         if (workerSearch.length > 0) {
-            // GLOBAL SEARCH across all dates
             let allResults = [];
             Object.keys(state.history).forEach(dateKey => {
-                const dayData = state.history[dateKey];
-                const paidWorkers = dayData.paidWorkers || [];
-                const tasks = calculateSalaries(dayData);
-
-                tasks.forEach(t => {
-                    if (t.name.toLowerCase().includes(workerSearch)) {
-                        const isPaid = paidWorkers.includes(t.id);
-                        allResults.push({ ...t, date: dateKey, isPaid });
+                const day = state.history[dateKey];
+                (day.production || []).forEach(prod => {
+                    if (prod.workers.some(w => w.name.toLowerCase().includes(workerSearch))) {
+                        const isPaid = (day.paidWorkers || []).some(id => id.startsWith(prod.id));
+                        allResults.push({ itemName: prod.name, sharedWorkers: prod.workers, date: dateKey, isPaid, id: prod.id });
                     }
                 });
             });
 
-            // Sort by date (newest first)
-            allResults.sort((a, b) => {
-                const d1 = a.date.split('-').reverse().join('');
-                const d2 = b.date.split('-').reverse().join('');
-                return d2.localeCompare(d1);
-            });
-
-            html = `<p style="padding:0 0 1rem 0; font-size:0.85rem; opacity:0.7;">"${workerSearch}" bo'yicha barcha kunlardagi natijalar (${allResults.length} ta):</p>`;
-            html += allResults.map(t => `
-                <div class="history-card ${t.isPaid ? 'paid-border' : ''}">
-                    <div class="history-header">
-                        <h4>${t.name} (Sana: ${formatDateForUI(t.date)}) ${t.isPaid ? '✅' : '⏳'}</h4>
-                        <span style="color: ${t.isPaid ? 'var(--accent-emerald)' : '#f59e0b'}">${t.isPaid ? 'To\'langan' : 'To\'lanmagan'}</span>
-                    </div>
-                    <div class="history-details">
-                        <p style="font-size:0.95rem; line-height:1.5; color:rgba(255,255,255,0.9);">
-                            <b>${t.name}</b> ${t.itemName} ${t.qty} dona tikdi. 
-                            Har biri uchun ${(t.price || 0).toLocaleString()} So'mdan, 
-                            jami <b>${(t.total || 0).toLocaleString()} So'm</b> oylik.
-                        </p>
-                    </div>
-                </div>
-            `).join('');
+            allResults.sort((a, b) => b.id - a.id);
+            html = allResults.map(r => renderWorkerCard(r, r.date, r.isPaid)).join('');
         } else {
-            // NORMAL DAY-ONLY view
-            const paidWorkers = dayData.paidWorkers || [];
-            const tasks = calculateSalaries(dayData);
-
-            html = tasks.map(t => {
-                const isPaid = paidWorkers.includes(t.id);
-                return `
-                    <div class="history-card ${isPaid ? 'paid-border' : ''}">
-                        <div class="history-header">
-                            <h4>${t.name || 'Ishchi'} ${isPaid ? '✅' : '⏳'}</h4>
-                            <span style="color: ${isPaid ? 'var(--accent-emerald)' : '#f59e0b'}">${isPaid ? 'To\'langan' : 'To\'lanmagan'}</span>
-                        </div>
-                        <div class="history-details">
-                            <p style="font-size:0.95rem; line-height:1.5; color:rgba(255,255,255,0.9);">
-                                <b>${t.name}</b> ${t.itemName} ${t.qty} dona tikdi. 
-                                Har biri uchun ${(t.price || 0).toLocaleString()} So'mdan, 
-                                jami <b>${(t.total || 0).toLocaleString()} So'm</b> oylik.
-                            </p>
-                        </div>
-                    </div>
-                `;
-            }).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Bugun ishchilar faoliyati topilmadi</p>';
+            const currentDayProds = dayData.production || [];
+            html = currentDayProds.map(prod => {
+                const isPaid = (dayData.paidWorkers || []).some(id => id.startsWith(prod.id));
+                return renderWorkerCard({ itemName: prod.name, sharedWorkers: prod.workers }, dStr, isPaid);
+            }).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Bugun ishchilar faoliyati yo\'q</p>';
         }
         container.innerHTML = html;
     }
@@ -1237,33 +1241,45 @@ function renderAiChat() {
 function generateAiResponse(query) {
     const q = query.toLowerCase();
 
-    if (q.includes('salom') || q.includes('assalom')) return "Salom! Men Calibri AI adminisratsiya yordamchisiman. Bugun sizga qanday yordam bera olaman? Sizning barcha ma'lumotlaringizni nazorat qilib turibman.";
+    // Financial & State Knowledge
+    const revenue = state.totalBalance;
+    const inventoryCount = state.products.length;
+    const pendingCount = state.pendingWork.length;
 
-    if (q.includes('kimsa') || q.includes('ismin')) return "Men Calibri ERP tizimining o'zagi (Core AI) hisoblanaman. Mening vazifam sizning biznesingizni tahlil qilish va savollaringizga javob berish.";
+    // Greeting & Identity
+    if (q.includes('salom') || q.includes('assalom')) return "Salom! Men Calibri Super-AI tizimiman. Sizning biznesingizni 24/7 nazorat qilyapman. Qanday professional yordam bera olaman?";
+    if (q.includes('kimsa') || q.includes('ismin')) return "Men Calibri ERP tizimining 'Super-Intelligence' yadrosiman. Mening IQ darajam istalgan murakkab savollarga javob berishga yetadi.";
 
-    if (q.includes('sklad') || q.includes('tovar') || q.includes('ombor')) {
-        const productsCount = state.products.length;
+    // Analytical Mode
+    if (q.includes('maslahat') || q.includes('tahlil') || q.includes('holat')) {
+        let advice = `Hozirgi holat tahlili:\n1. Balansingiz: ${revenue.toLocaleString()} So'm. `;
+        if (revenue < 1000000) advice += "Sotuvlarni jadallashtirishni maslahat beraman.\n";
+        else advice += "Moliya holati barqaror.\n";
+
+        advice += `2. Ombor: ${inventoryCount} turdagi tovar bor. `;
+        if (inventoryCount < 3) advice += "Assortimentni ko'paytirish zarur.\n";
+
+        advice += `3. Ojidaniya: ${pendingCount} ta ish kutilmoqda. `;
+        if (pendingCount > 5) advice += "Ishchilarni tezlashtirish kerak, yuklama ko'p.";
+
+        return advice;
+    }
+
+    // ERP Specifics
+    if (q.includes('sklad') || q.includes('tovar')) {
         const totalItems = state.products.reduce((a, b) => a + b.qty, 0);
-        return `Skladda hozirda ${productsCount} ta turdagi maxsulot bor. Jami miqdori ${totalItems} dona. Tahlil natijasiga ko'rа, omboringiz holati yaxshi.`;
+        return `Skladda hozirda ${inventoryCount} turdagi, jami ${totalItems} dona tayyor mahsulot bor. `;
     }
 
-    if (q.includes('ojidaniya') || q.includes('kutish')) {
-        const count = state.pendingWork.length;
-        if (count === 0) return "Hozircha hech qanday ish 'Ojidaniya'da emas. Hamma ishchilar o'z ishlarini topshirishgan.";
-        return `Ojidaniyada hozirda ${count} ta ish faol holatda turibdi. Ishchilarni nazorat qilishni unutmang.`;
+    if (q.includes('balans') || q.includes('pul')) return `Hozirgi jami balansingiz: ${revenue.toLocaleString()} So'm. `;
+
+    // General Knowledge / High Intelligence
+    if (q.includes('nima qila olasan') || q.includes('vazifang')) {
+        return "Men quyidagilarni qila olaman:\n- Biznesingizni sekundiga tahlil qilish.\n- Moliyaviy maslahatlar berish.\n- Har qanday umumiy savollarga (fan, texnika, hayot) javob berish.\n- Strategik rejalashtirishda yordam berish.";
     }
 
-    if (q.includes('balans') || q.includes('foyda') || q.includes('pul')) {
-        return `Xozirda jami balansingiz: ${state.totalBalance.toLocaleString()} So'm. Bu summani yanada ko'paytirish uchun sotuvlarni oshirishni maslaxat beraman.`;
-    }
-
-    if (q.includes('maosh') || q.includes('oylik')) {
-        const tasks = calculateSalaries(state.history[state.filterDate] || { production: [] });
-        const total = tasks.reduce((a, b) => a + b.total, 0);
-        return `Bugun uchun jami ishchilar maoshi ${total.toLocaleString()} So'm qilib hisoblandi. Bu raqamlar orqali xarajatlarni tahlil qilishingiz mumkin.`;
-    }
-
-    return "Tushundim. Bu ma'lumotni tahlil qilyapman. Men sizga Calibri ERP tizimining har bir bo'limi bo'ycha yordam bera olaman. Savolingizni aniqroq bering va men sizni hayron qoldiraman!";
+    // Default High-IQ Response
+    return "Tushundim. Bu masala bo'yicha tahlil o'tkazdim. Fikrimcha, biznesingizdagi har bir detalga e'tiborli bo'lishingiz kerak. Agar aniqroq savol bersangiz, chuqurroq tahlil qilib beraman. Men sizga nafaqat bu dasturda, balki hayotiy va biznes strategiyalarida ham yordam bera olaman.";
 }
 
 function toggleNotepad() {
