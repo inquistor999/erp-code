@@ -29,7 +29,7 @@ const DEFAULT_STATE = {
     totalBalance: 0,
     currentInventoryTab: 'ready',
     currentHistoryTab: 'prod_hist',
-    filterDate: ""
+    filterDate: "" // Will be set once and never auto-updated
 };
 
 const UI_VIEWS = ['productionView', 'salesView', 'salariesView', 'skladView', 'ojidaniyaView', 'tarixView'];
@@ -37,12 +37,16 @@ const UI_VIEWS = ['productionView', 'salesView', 'salariesView', 'skladView', 'o
 // Start with LocalStorage or Default
 let localData = localStorage.getItem('calibri_erp_state');
 let state = localData ? JSON.parse(localData) : JSON.parse(JSON.stringify(DEFAULT_STATE));
-if (!state.filterDate) state.filterDate = getTodayStr();
 
+// FIXED: MANUAL DATE CONTROL. Only set to today if COMPLETELY empty (first run).
+// Ensure we never override the user's selected "active date" with "today" automatically.
 function getTodayStr() {
     const d = new Date();
-    // Using dashes (-) for Firebase compatibility (No dots allowed in keys)
     return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+}
+
+if (!state.filterDate) {
+    state.filterDate = getTodayStr();
 }
 
 function formatDateForUI(dStr) {
@@ -142,8 +146,17 @@ dbRef.once('value').then((snapshot) => {
         console.log("Cloud is empty. Using local as source of truth.");
     }
 
-    state.filterDate = currentFilterDate.replaceAll('.', '-');
+    // MANUAL DATE FIX: Do NOT override state.filterDate with current date on sync
+    // state.filterDate = currentFilterDate.replaceAll('.', '-'); 
+
+    // Ensure history structure exists
     if (!state.history) state.history = {};
+
+    // Create today's entry if it doesn't exist, but don't switch to it automatically
+    // This allows the "New Day" button to be the only way to "create" a day visually if preferred,
+    // or we can just ensure the data structure exists.
+    // For now, we trust the Manual Date Picker.
+
     if (!state.pendingWork) state.pendingWork = [];
     if (!state.products) state.products = [];
     if (!state.materials) state.materials = [];
@@ -427,6 +440,8 @@ function submitUniversalAdd() {
         } else {
             state.products.push({ id: 'p' + Date.now(), name: name, qty: qty, costPrice: price });
         }
+    } else {
+        return alert("Xatolik: Tovar turi tanlanmadi!");
     }
 
     alert("Sklad: Tovar muvaffaqiyatli qo'shildi! ✅");
@@ -442,7 +457,10 @@ function submitUniversalAdd() {
 function submitProduction() {
     const prodName = document.getElementById('prodName').value.trim();
     const totalQty = parseInt(document.getElementById('prodTotalQty').value);
-    if (!prodName || !totalQty || totalQty <= 0) return alert("Mahsulot nomi va miqdorini to'g'ri kiriting!");
+
+    // 1. Basic Validation
+    if (!prodName) return alert("Xatolik: Mahsulot nomi kiritilmadi!");
+    if (!totalQty || totalQty <= 0) return alert("Xatolik: Mahsulot soni noto'g'ri!");
 
     // Gather Materials
     const matRows = document.querySelectorAll('#materialRowsContainer .dynamic-row');
@@ -454,17 +472,21 @@ function submitProduction() {
         const sarfEl = row.querySelector('.row-mat-sarf');
         const priceEl = row.querySelector('.row-mat-price');
 
-        if (!matIdEl || !sarfEl || !priceEl) continue;
+        if (!matIdEl || !sarfEl) continue;
 
         const id = matIdEl.value;
         const sarf = parseFloat(sarfEl.value) || 0;
-        const price = parseInt(priceEl.value) || 0;
+        const price = parseInt(priceEl?.value) || 0;
 
         const mat = state.materials.find(m => m.id === id);
         if (!mat) continue;
 
         const totalUsed = totalQty * sarf;
-        if (mat.stock < totalUsed) return alert(`${mat.name} yetarli emas!`);
+        if (mat.stock < totalUsed) {
+            if (!confirm(`${mat.name} omborda yetarli emas! (Bor: ${mat.stock}, Kerak: ${totalUsed}). Davom etishni xohlaysizmi? (Skladda minusga kiradi)`)) {
+                return;
+            }
+        }
 
         mat.stock -= totalUsed;
         materialsUsed.push({ name: mat.name, qty: totalUsed, price: price });
@@ -480,19 +502,19 @@ function submitProduction() {
         const qtyEl = row.querySelector('.row-worker-qty');
         const priceEl = row.querySelector('.row-worker-price');
 
-        if (!nameEl || !qtyEl || !priceEl) continue;
+        if (!nameEl) continue;
 
         const name = nameEl.value.trim();
-        const qty = parseInt(qtyEl.value) || 0;
-        const price = parseInt(priceEl.value) || 0;
+        const wQty = parseInt(qtyEl?.value) || 0;
+        const wPrice = parseInt(priceEl?.value) || 0;
 
-        if (name && qty > 0) {
-            workersDone.push({ name, qty, price });
-            laborTotalCost += qty * price;
+        if (name && wQty > 0) {
+            workersDone.push({ name, qty: wQty, price: wPrice });
+            laborTotalCost += wQty * wPrice;
         }
     }
 
-    if (workersDone.length === 0) return alert("Kamida bitta ishchi va uning bajargan miqdorini kiriting!");
+    if (workersDone.length === 0) return alert("Kamida bitta ishchi va uning bajargan miqdorini (dona) kiriting!");
 
     const totalBatchExp = matTotalCostForBatch + laborTotalCost;
     const dateStr = state.filterDate || getTodayStr();
@@ -500,8 +522,11 @@ function submitProduction() {
 
     state.history[dateStr].production.push({
         id: Date.now(),
-        name: prodName, qty: totalQty, totalExp: totalBatchExp,
-        matCost: matTotalCostForBatch, laborCost: laborTotalCost,
+        name: prodName,
+        qty: totalQty,
+        totalExp: totalBatchExp,
+        matCost: matTotalCostForBatch,
+        laborCost: laborTotalCost,
         materials: materialsUsed,
         workers: workersDone.map((w, idx) => ({ ...w, id: idx })),
         time: new Date().toLocaleTimeString()
@@ -511,16 +536,12 @@ function submitProduction() {
     let existing = state.products.find(p => p.name === prodName);
     if (existing) {
         existing.qty += totalQty;
+        // Weighted average cost
         existing.costPrice = ((existing.costPrice * (existing.qty - totalQty)) + totalBatchExp) / existing.qty;
     } else {
         state.products.push({ id: 'p' + Date.now(), name: prodName, qty: totalQty, costPrice: totalBatchExp / totalQty });
     }
 
-    // Deduct only material cost from balance initially. 
-    // Labor cost will be deducted when salary is paid.
-    // state.totalBalance -= matTotalCostForBatch; // Removed as per instruction
-
-    alert("Saqlandi!");
     resetForms();
     updateUI(); // Instant update
     save();
@@ -714,18 +735,23 @@ function updateUI() {
 
 function calculateSalaries(dayData) {
     let tasks = [];
-    if (!dayData.production) return tasks;
+    if (!dayData || !dayData.production) return tasks;
+
+    // Graceful handling of possible corrupted data
     dayData.production.forEach((prod) => {
-        const prodId = prod.id || ('legacy_' + prod.name);
-        if (prod.workers) {
+        if (!prod) return;
+        const prodId = prod.id || ('legacy_' + Math.random());
+
+        if (prod.workers && Array.isArray(prod.workers)) {
             prod.workers.forEach((w, wIdx) => {
+                if (!w) return;
                 tasks.push({
                     id: `${prodId}_${wIdx}`,
-                    name: w.name,
-                    itemName: prod.name,
-                    qty: w.qty,
-                    price: w.price,
-                    total: w.qty * (w.price || 0)
+                    name: w.name || 'Noma\'lum',
+                    itemName: prod.name || 'Mahsulot',
+                    qty: w.qty || 0,
+                    price: w.price || 0,
+                    total: (w.qty || 0) * (w.price || 0)
                 });
             });
         }
@@ -876,31 +902,59 @@ function renderDetailedHistory() {
 
 function updateDatePicker() {
     const datePicker = document.getElementById('historyDatePicker');
+    const headerDate = document.getElementById('currentDateDisplay');
     if (!datePicker) return;
 
     // Barcha mavjud sanalarni yig'amiz
     const historicalDates = Object.keys(state.history || {});
-    const today = getTodayStr();
+    // Add current filterDate to list if not present (handles new day creation)
+    if (state.filterDate && !historicalDates.includes(state.filterDate)) {
+        historicalDates.push(state.filterDate);
+    }
 
-    // Duplikat bo'lmasligi uchun Set ishlatamiz
-    const allDates = new Set([today, ...historicalDates]);
-    const historyList = document.getElementById('historyList');
-    if (!historyList) return;
-
-    const dates = Object.keys(state.history).sort((a, b) => {
+    // Sort dates descending (newest first)
+    const sortedDates = historicalDates.sort((a, b) => {
         const [d1, m1, y1] = a.split('-').map(Number);
         const [d2, m2, y2] = b.split('-').map(Number);
         return new Date(y2, m2 - 1, d2) - new Date(y1, m1 - 1, d1);
     });
 
     let options = '';
-    dates.forEach(d => {
+    sortedDates.forEach(d => {
         const uiDate = formatDateForUI(d);
-        options += `<option value="${d}">${d === today ? 'Bugun (' + uiDate + ')' : uiDate}</option>`;
+        options += `<option value="${d}">${uiDate}</option>`;
     });
 
     datePicker.innerHTML = options;
     datePicker.value = state.filterDate;
+
+    // Update Header Text
+    if (headerDate) {
+        headerDate.innerText = `Sana: ${formatDateForUI(state.filterDate)}`;
+    }
+}
+
+function addNewDate() {
+    const today = getTodayStr(); // 17-02-2026
+
+    // If today already exists, user might want "Tomorrow" or just jump to today
+    if (state.history[today]) {
+        if (confirm(`Bugungi sana (${formatDateForUI(today)}) allaqachon mavjud. O'sha sanaga o'tishni xohlaysizmi?`)) {
+            state.filterDate = today;
+            updateUI();
+            save();
+        }
+        return;
+    }
+
+    // If today does NOT exist, create it
+    if (confirm(`Yangi ish kuni ochilsinmi? (${formatDateForUI(today)})`)) {
+        state.filterDate = today;
+        state.history[today] = { production: [], sales: [], paidWorkers: [] };
+        updateUI();
+        save();
+        alert(`Yangi kun (${formatDateForUI(today)}) muvaffaqiyatli ochildi! Ishlaringizga omad.`);
+    }
 }
 
 // Connection State Listener (Real-time feedback)
