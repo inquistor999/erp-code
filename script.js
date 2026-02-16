@@ -690,17 +690,21 @@ function updateUI() {
 
 function calculateSalaries(dayData) {
     let tasks = [];
+    if (!dayData.production) return tasks;
     dayData.production.forEach((prod) => {
         const prodId = prod.id || ('legacy_' + prod.name);
-        prod.workers.forEach((w, wIdx) => {
-            tasks.push({
-                id: `${prodId}_${wIdx}`,
-                name: w.name,
-                itemName: prod.name,
-                qty: w.qty,
-                total: w.qty * w.price
+        if (prod.workers) {
+            prod.workers.forEach((w, wIdx) => {
+                tasks.push({
+                    id: `${prodId}_${wIdx}`,
+                    name: w.name,
+                    itemName: prod.name,
+                    qty: w.qty,
+                    price: w.price,
+                    total: w.qty * (w.price || 0)
+                });
             });
-        });
+        }
     });
     return tasks;
 }
@@ -795,29 +799,74 @@ function renderDetailedHistory() {
             </div>
         `).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Sotuvlar tarixi bo\'sh</p>';
     } else if (state.currentHistoryTab === 'worker_hist') {
-        // Aggregate Worker History for the selected day
-        const workerSearch = (document.getElementById('workerHistorySearch')?.value || "").toLowerCase();
-        const paidWorkers = dayData.paidWorkers || [];
-        const tasks = calculateSalaries(dayData);
+        const workerSearch = (document.getElementById('workerHistorySearch')?.value || "").toLowerCase().trim();
+        const container = document.getElementById('historyDetailedList');
 
-        const filteredTasks = tasks.filter(t => t.name.toLowerCase().includes(workerSearch));
+        let html = '';
+        if (workerSearch.length > 0) {
+            // GLOBAL SEARCH across all dates
+            let allResults = [];
+            Object.keys(state.history).forEach(dateKey => {
+                const dayData = state.history[dateKey];
+                const paidWorkers = dayData.paidWorkers || [];
+                const tasks = calculateSalaries(dayData);
 
-        container.innerHTML = filteredTasks.map(t => {
-            const isPaid = paidWorkers.includes(t.id);
-            return `
-                <div class="history-card ${isPaid ? 'paid-border' : ''}">
+                tasks.forEach(t => {
+                    if (t.name.toLowerCase().includes(workerSearch)) {
+                        const isPaid = paidWorkers.includes(t.id);
+                        allResults.push({ ...t, date: dateKey, isPaid });
+                    }
+                });
+            });
+
+            // Sort by date (newest first)
+            allResults.sort((a, b) => {
+                const d1 = a.date.split('-').reverse().join('');
+                const d2 = b.date.split('-').reverse().join('');
+                return d2.localeCompare(d1);
+            });
+
+            html = `<p style="padding:0 0 1rem 0; font-size:0.85rem; opacity:0.7;">"${workerSearch}" bo'yicha barcha kunlardagi natijalar (${allResults.length} ta):</p>`;
+            html += allResults.map(t => `
+                <div class="history-card ${t.isPaid ? 'paid-border' : ''}">
                     <div class="history-header">
-                        <h4>${t.name || 'Ishchi'} ${isPaid ? '✅' : '⏳'}</h4>
-                        <span style="color: ${isPaid ? 'var(--accent-emerald)' : '#f59e0b'}">${isPaid ? 'To\'langan' : 'To\'lanmagan'}</span>
+                        <h4>${t.name} (Sana: ${formatDateForUI(t.date)}) ${t.isPaid ? '✅' : '⏳'}</h4>
+                        <span style="color: ${t.isPaid ? 'var(--accent-emerald)' : '#f59e0b'}">${t.isPaid ? 'To\'langan' : 'To\'lanmagan'}</span>
                     </div>
                     <div class="history-details">
-                        <div class="history-sub-item"><span>Ish:</span> <b>${t.itemName || ''}</b></div>
-                        <div class="history-sub-item"><span>Soni:</span> <b>${t.qty || 0} dona</b></div>
-                        <div class="history-sub-item"><span>Haqqi:</span> <b>${(t.total || 0).toLocaleString()} So'm</b></div>
+                        <p style="font-size:0.95rem; line-height:1.5; color:rgba(255,255,255,0.9);">
+                            <b>${t.name}</b> ${t.itemName} ${t.qty} dona tikdi. 
+                            Har biri uchun ${(t.price || 0).toLocaleString()} So'mdan, 
+                            jami <b>${(t.total || 0).toLocaleString()} So'm</b> oylik.
+                        </p>
                     </div>
                 </div>
-            `;
-        }).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Ishchilar faoliyati topilmadi</p>';
+            `).join('');
+        } else {
+            // NORMAL DAY-ONLY view
+            const paidWorkers = dayData.paidWorkers || [];
+            const tasks = calculateSalaries(dayData);
+
+            html = tasks.map(t => {
+                const isPaid = paidWorkers.includes(t.id);
+                return `
+                    <div class="history-card ${isPaid ? 'paid-border' : ''}">
+                        <div class="history-header">
+                            <h4>${t.name || 'Ishchi'} ${isPaid ? '✅' : '⏳'}</h4>
+                            <span style="color: ${isPaid ? 'var(--accent-emerald)' : '#f59e0b'}">${isPaid ? 'To\'langan' : 'To\'lanmagan'}</span>
+                        </div>
+                        <div class="history-details">
+                            <p style="font-size:0.95rem; line-height:1.5; color:rgba(255,255,255,0.9);">
+                                <b>${t.name}</b> ${t.itemName} ${t.qty} dona tikdi. 
+                                Har biri uchun ${(t.price || 0).toLocaleString()} So'mdan, 
+                                jami <b>${(t.total || 0).toLocaleString()} So'm</b> oylik.
+                            </p>
+                        </div>
+                    </div>
+                `;
+            }).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Bugun ishchilar faoliyati topilmadi</p>';
+        }
+        container.innerHTML = html;
     }
 }
 

@@ -510,6 +510,12 @@ button.secondary-btn {
     border: 1px solid var(--glass-border);
     border-radius: 1rem;
     padding: 1.25rem;
+    transition: all 0.3s ease;
+}
+
+.history-card.paid-border {
+    border-color: var(--accent-emerald) !important;
+    background: rgba(16, 185, 129, 0.05) !important;
 }
 
 .history-header {
