@@ -1,7 +1,8 @@
 const mongoose = require('mongoose');
 
 const materialSchema = new mongoose.Schema({
-    name: { type: String, required: true, unique: true },
+    id: { type: String, required: true, unique: true },
+    name: { type: String, required: true },
     stock: { type: Number, default: 0 },
     unit: { type: String, default: 'm' },
     costPerUnit: { type: Number, default: 0 },

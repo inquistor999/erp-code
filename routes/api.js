@@ -3,6 +3,20 @@ const router = express.Router();
 const Product = require('../models/Product');
 const Material = require('../models/Material');
 const History = require('../models/History');
+const GlobalState = require('../models/GlobalState');
+
+// --- Global State (Balance, Pending, Notepad) ---
+router.get('/global-state', async (req, res) => {
+    try {
+        let state = await GlobalState.findOne({ key: 'main_state' });
+        if (!state) {
+            state = await GlobalState.create({ key: 'main_state' });
+        }
+        res.json(state);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
 
 // --- Products (Sklad) ---
 router.get('/products', async (req, res) => {
@@ -11,16 +25,6 @@ router.get('/products', async (req, res) => {
         res.json(products);
     } catch (err) {
         res.status(500).json({ message: err.message });
-    }
-});
-
-router.post('/products', async (req, res) => {
-    const product = new Product(req.body);
-    try {
-        const newProduct = await product.save();
-        res.status(201).json(newProduct);
-    } catch (err) {
-        res.status(400).json({ message: err.message });
     }
 });
 
@@ -34,16 +38,6 @@ router.get('/materials', async (req, res) => {
     }
 });
 
-router.post('/materials', async (req, res) => {
-    const material = new Material(req.body);
-    try {
-        const newMaterial = await material.save();
-        res.status(201).json(newMaterial);
-    } catch (err) {
-        res.status(400).json({ message: err.message });
-    }
-});
-
 // --- History ---
 router.get('/history', async (req, res) => {
     try {
@@ -54,42 +48,33 @@ router.get('/history', async (req, res) => {
     }
 });
 
-router.post('/history', async (req, res) => {
-    const { date, production, sales, paidWorkers } = req.body;
-    try {
-        let history = await History.findOne({ date });
-        if (history) {
-            if (production) history.production = [...history.production, ...production];
-            if (sales) history.sales = [...history.sales, ...sales];
-            if (paidWorkers) history.paidWorkers = [...history.paidWorkers, ...paidWorkers];
-            await history.save();
-        } else {
-            history = new History(req.body);
-            await history.save();
-        }
-        res.status(201).json(history);
-    } catch (err) {
-        res.status(400).json({ message: err.message });
-    }
-});
-
-// --- Bulk Sync (For elite performance - 0.5s sync) ---
+// --- Bulk Sync (Optimized for Collaboration) ---
 router.post('/sync-all', async (req, res) => {
-    const { products, materials, history } = req.body;
+    const { products, materials, history, globalState } = req.body;
     try {
-        // This is a heavy operation but ensures absolute consistency
-        if (products) {
+        // 1. Sync Products
+        if (products && Array.isArray(products)) {
             for (const p of products) {
-                await Product.findOneAndUpdate({ id: p.id }, p, { upsert: true });
+                if (p.id) await Product.findOneAndUpdate({ id: p.id }, p, { upsert: true });
             }
         }
-        if (materials) {
+        // 2. Sync Materials
+        if (materials && Array.isArray(materials)) {
             for (const m of materials) {
-                await Material.findOneAndUpdate({ id: m.id }, m, { upsert: true });
+                if (m.id) await Material.findOneAndUpdate({ id: m.id }, m, { upsert: true });
             }
         }
+        // 3. Sync History (Active Date)
         if (history && history.date) {
             await History.findOneAndUpdate({ date: history.date }, history, { upsert: true });
+        }
+        // 4. Sync Global State (Balance, Pending, Notepad)
+        if (globalState) {
+            await GlobalState.findOneAndUpdate(
+                { key: 'main_state' },
+                { ...globalState, updatedAt: Date.now() },
+                { upsert: true }
+            );
         }
         res.json({ success: true });
     } catch (err) {

@@ -128,15 +128,17 @@ function deepMergeState(local, cloud) {
 // 1. Load from Backend
 async function loadData() {
     try {
-        const [prodRes, matRes, histRes] = await Promise.all([
+        const [prodRes, matRes, histRes, globalRes] = await Promise.all([
             fetch(`${API_URL}/products`),
             fetch(`${API_URL}/materials`),
-            fetch(`${API_URL}/history`)
+            fetch(`${API_URL}/history`),
+            fetch(`${API_URL}/global-state`)
         ]);
 
         const products = await prodRes.json();
         const materials = await matRes.json();
         const historyData = await histRes.json();
+        const gState = await globalRes.json();
 
         // Convert History array back to object for compatibility
         const historyObj = {};
@@ -146,10 +148,17 @@ async function loadData() {
             });
         }
 
-        // Strictly ensure we only accept ARRAYS from the server to prevent .find errors
-        state.products = Array.isArray(products) ? products : (state.products || []);
-        state.materials = Array.isArray(materials) ? materials : (state.materials || []);
+        // Strictly ensure we only accept ARRAYS/OBJECTS from the server
+        if (Array.isArray(products)) state.products = products;
+        if (Array.isArray(materials)) state.materials = materials;
         state.history = historyObj;
+
+        // Load Global State (Balance, Pending, Notepad)
+        if (gState) {
+            state.totalBalance = gState.totalBalance || 0;
+            if (Array.isArray(gState.pendingWork)) state.pendingWork = gState.pendingWork;
+            state.notepad = gState.notepad || "";
+        }
 
         // Visual status update
         const syncStatus = document.getElementById('syncStatus');
@@ -186,30 +195,47 @@ async function loadData() {
 loadData();
 
 // Real-time refresh pulse (0.5s as requested for elite performance)
-setInterval(() => {
-    if (isSynced) loadDataSilently();
-}, 500);
+// Real-time refresh pulse (Increased to 3s for Render stability)
+let isRefreshing = false;
+setInterval(async () => {
+    if (isSynced && !isRefreshing) {
+        isRefreshing = true;
+        await loadDataSilently();
+        isRefreshing = false;
+    }
+}, 3000);
 
 async function loadDataSilently() {
     try {
-        const [prodRes, matRes, histRes] = await Promise.all([
+        const [prodRes, matRes, histRes, globalRes] = await Promise.all([
             fetch(`${API_URL}/products`),
             fetch(`${API_URL}/materials`),
-            fetch(`${API_URL}/history`)
+            fetch(`${API_URL}/history`),
+            fetch(`${API_URL}/global-state`)
         ]);
 
         const products = await prodRes.json();
         const materials = await matRes.json();
         const historyData = await histRes.json();
+        const gState = await globalRes.json();
 
         // Safety check: Don't let non-arrays break the app
-        if (Array.isArray(products)) state.products = products;
-        if (Array.isArray(materials)) state.materials = materials;
-
-        if (Array.isArray(historyData)) {
+        if (Array.isArray(products) && Array.isArray(materials) && Array.isArray(historyData)) {
             const historyObj = {};
             historyData.forEach(h => { historyObj[h.date] = h; });
-            state.history = historyObj;
+
+            // Build a temporary cloud state for merging
+            const cloudState = {
+                products,
+                materials,
+                history: historyObj,
+                pendingWork: gState?.pendingWork || [],
+                totalBalance: gState?.totalBalance || 0,
+                notepad: gState?.notepad || ""
+            };
+
+            // Smart Merge: Don't just overwrite, merge wisely!
+            state = deepMergeState(state, cloudState);
         }
 
         const syncStatus = document.getElementById('syncStatus');
@@ -241,20 +267,23 @@ async function save() {
         const dayData = state.history[dStr] || { production: [], sales: [], paidWorkers: [] };
 
         // Elite sync: Send everything in one batch for speed & consistency
-        const response = await fetch(`${API_URL}/sync-all`, {
+        await fetch(`${API_URL}/sync-all`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 products: state.products,
                 materials: state.materials,
-                history: { date: dStr, ...dayData }
+                history: { date: dStr, ...dayData },
+                globalState: {
+                    totalBalance: state.totalBalance,
+                    pendingWork: state.pendingWork,
+                    notepad: state.notepad
+                }
             })
         });
 
-        if (response.ok) {
-            console.log("Elite Sync Complete 🍃");
-            updateUI();
-        }
+        console.log("Elite Sync Complete 🍃");
+        updateUI();
     } catch (err) {
         console.error("Collaboration Sync Error:", err);
     }
