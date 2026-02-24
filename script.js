@@ -61,7 +61,13 @@ let isSynced = false;
 function deepMergeState(local, cloud) {
     if (!cloud) return local;
 
-    const merged = { ...local, ...cloud };
+    const merged = { ...local };
+
+    // Preserve UI-only properties (never override from cloud)
+    const UI_ONLY_KEYS = ['filterDate', 'currentInventoryTab', 'currentHistoryTab', 'aiMessages'];
+    Object.keys(cloud).forEach(key => {
+        if (!UI_ONLY_KEYS.includes(key)) merged[key] = cloud[key];
+    });
 
     // 1. Merge History (Dates)
     if (local.history && cloud.history) {
@@ -128,6 +134,20 @@ function deepMergeState(local, cloud) {
 // 1. Load from Backend
 async function loadData() {
     try {
+        // First check if server & DB are ready
+        const healthRes = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(15000) });
+        const health = await healthRes.json();
+
+        if (health.database !== 'connected') {
+            console.warn('DB not ready yet, using local data. Retrying in 3s...');
+            setTimeout(loadData, 3000);
+            isSynced = false;
+            updateUI();
+            const loader = document.getElementById('loader');
+            if (loader) { loader.style.display = 'none'; }
+            return;
+        }
+
         const [prodRes, matRes, histRes, globalRes] = await Promise.all([
             fetch(`${API_URL}/products`),
             fetch(`${API_URL}/materials`),
@@ -140,25 +160,23 @@ async function loadData() {
         const historyData = await histRes.json();
         const gState = await globalRes.json();
 
-        // Convert History array back to object for compatibility
+        // Convert History array back to object
         const historyObj = {};
         if (Array.isArray(historyData)) {
-            historyData.forEach(h => {
-                historyObj[h.date] = h;
-            });
+            historyData.forEach(h => { historyObj[h.date] = h; });
         }
 
-        // Strictly ensure we only accept ARRAYS/OBJECTS from the server
-        if (Array.isArray(products)) state.products = products;
-        if (Array.isArray(materials)) state.materials = materials;
-        state.history = historyObj;
+        // Build cloud state and merge with local
+        const cloudState = {
+            products: Array.isArray(products) ? products : [],
+            materials: Array.isArray(materials) ? materials : [],
+            history: historyObj,
+            totalBalance: gState?.totalBalance || 0,
+            pendingWork: Array.isArray(gState?.pendingWork) ? gState.pendingWork : [],
+            notepad: gState?.notepad || ""
+        };
 
-        // Load Global State (Balance, Pending, Notepad)
-        if (gState) {
-            state.totalBalance = gState.totalBalance || 0;
-            if (Array.isArray(gState.pendingWork)) state.pendingWork = gState.pendingWork;
-            state.notepad = gState.notepad || "";
-        }
+        state = deepMergeState(state, cloudState);
 
         // Visual status update
         const syncStatus = document.getElementById('syncStatus');
@@ -167,11 +185,8 @@ async function loadData() {
             syncStatus.style.color = 'var(--accent-emerald)';
         }
 
-        // Save local copy for offline/startup fallback
         localStorage.setItem('calibri_erp_state', JSON.stringify(state));
-
         if (!state.filterDate) state.filterDate = getTodayStr();
-
         updateUI();
 
         // PREMIUM LOADING: Fade out loader
@@ -185,7 +200,9 @@ async function loadData() {
         isSynced = true;
     } catch (err) {
         console.error("Critical Sync Error:", err);
-        isSynced = true;
+        // Use local data, retry loading later
+        isSynced = false;
+        setTimeout(loadData, 5000);
         updateUI();
         const loader = document.getElementById('loader');
         if (loader) loader.style.display = 'none';
@@ -194,8 +211,7 @@ async function loadData() {
 
 loadData();
 
-// Real-time refresh pulse (0.5s as requested for elite performance)
-// Real-time refresh pulse (Increased to 3s for Render stability)
+// Real-time refresh pulse (3s for Render stability)
 let isRefreshing = false;
 setInterval(async () => {
     if (isSynced && !isRefreshing) {
