@@ -73,4 +73,28 @@ router.post('/history', async (req, res) => {
     }
 });
 
+// --- Bulk Sync (For elite performance - 0.5s sync) ---
+router.post('/sync-all', async (req, res) => {
+    const { products, materials, history } = req.body;
+    try {
+        // This is a heavy operation but ensures absolute consistency
+        if (products) {
+            for (const p of products) {
+                await Product.findOneAndUpdate({ id: p.id }, p, { upsert: true });
+            }
+        }
+        if (materials) {
+            for (const m of materials) {
+                await Material.findOneAndUpdate({ id: m.id }, m, { upsert: true });
+            }
+        }
+        if (history && history.date) {
+            await History.findOneAndUpdate({ date: history.date }, history, { upsert: true });
+        }
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
 module.exports = router;

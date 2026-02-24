@@ -11,7 +11,7 @@ window.onerror = function (message, source, lineno, colno, error) {
 };
 
 // --- API Configuration ---
-const API_URL = 'http://localhost:5000/api';
+const API_URL = window.location.origin + '/api';
 
 
 // --- Advanced State Management ---
@@ -146,9 +146,20 @@ async function loadData() {
             });
         }
 
-        state.products = products || [];
-        state.materials = materials || [];
+        // Strictly ensure we only accept ARRAYS from the server to prevent .find errors
+        state.products = Array.isArray(products) ? products : (state.products || []);
+        state.materials = Array.isArray(materials) ? materials : (state.materials || []);
         state.history = historyObj;
+
+        // Visual status update
+        const syncStatus = document.getElementById('syncStatus');
+        if (syncStatus) {
+            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: var(--accent-emerald); border-radius: 50%;"></span> Bulut bilan ulangan';
+            syncStatus.style.color = 'var(--accent-emerald)';
+        }
+
+        // Save local copy for offline/startup fallback
+        localStorage.setItem('calibri_erp_state', JSON.stringify(state));
 
         if (!state.filterDate) state.filterDate = getTodayStr();
 
@@ -174,15 +185,53 @@ async function loadData() {
 
 loadData();
 
-// Real-time refresh pulse
+// Real-time refresh pulse (0.5s as requested for elite performance)
 setInterval(() => {
-    if (isSynced) updateUI();
-}, 2000);
+    if (isSynced) loadDataSilently();
+}, 500);
 
-// 2. Global Save Function
-// 2. Global Save Function
+async function loadDataSilently() {
+    try {
+        const [prodRes, matRes, histRes] = await Promise.all([
+            fetch(`${API_URL}/products`),
+            fetch(`${API_URL}/materials`),
+            fetch(`${API_URL}/history`)
+        ]);
+
+        const products = await prodRes.json();
+        const materials = await matRes.json();
+        const historyData = await histRes.json();
+
+        // Safety check: Don't let non-arrays break the app
+        if (Array.isArray(products)) state.products = products;
+        if (Array.isArray(materials)) state.materials = materials;
+
+        if (Array.isArray(historyData)) {
+            const historyObj = {};
+            historyData.forEach(h => { historyObj[h.date] = h; });
+            state.history = historyObj;
+        }
+
+        const syncStatus = document.getElementById('syncStatus');
+        if (syncStatus) {
+            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: var(--accent-emerald); border-radius: 50%;"></span> Bulut bilan ulangan';
+            syncStatus.style.color = 'var(--accent-emerald)';
+        }
+
+        updateUI();
+    } catch (err) {
+        console.warn("Silent sync failed - Server or MongoDB unreachable.");
+        const syncStatus = document.getElementById('syncStatus');
+        if (syncStatus) {
+            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: #f43f5e; border-radius: 50%;"></span> Server ochiq emas';
+            syncStatus.style.color = '#f43f5e';
+        }
+    }
+}
+
+// 2. Global Save Function (Optimized for Bulk Sync & Collaboration)
 async function save() {
-    // Stage 1: Save to LocalStorage (Instant & Offline)
+    // Instant Local Save
     localStorage.setItem('calibri_erp_state', JSON.stringify(state));
 
     if (!isSynced) return;
@@ -191,35 +240,23 @@ async function save() {
         const dStr = state.filterDate || getTodayStr();
         const dayData = state.history[dStr] || { production: [], sales: [], paidWorkers: [] };
 
-        // Save current day history
-        await fetch(`${API_URL}/history`, {
+        // Elite sync: Send everything in one batch for speed & consistency
+        const response = await fetch(`${API_URL}/sync-all`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date: dStr, ...dayData })
+            body: JSON.stringify({
+                products: state.products,
+                materials: state.materials,
+                history: { date: dStr, ...dayData }
+            })
         });
 
-        // Professional Sync: Only save modified products/materials if needed
-        // For now, we sync the whole list to ensure consistency in this migration phase
-        for (const p of state.products) {
-            await fetch(`${API_URL}/products`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(p)
-            });
+        if (response.ok) {
+            console.log("Elite Sync Complete 🍃");
+            updateUI();
         }
-
-        for (const m of state.materials) {
-            await fetch(`${API_URL}/materials`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(m)
-            });
-        }
-
-        console.log("Data Saved to Backend 🍃");
-        updateUI();
     } catch (err) {
-        console.error("Backend Save Error:", err);
+        console.error("Collaboration Sync Error:", err);
     }
 }
 
