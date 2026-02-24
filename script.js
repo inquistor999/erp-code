@@ -207,6 +207,20 @@ setInterval(async () => {
 
 async function loadDataSilently() {
     try {
+        // Quick health check first
+        const healthRes = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(8000) });
+        const health = await healthRes.json();
+
+        if (health.database !== 'connected') {
+            // DB is reconnecting, show waiting message
+            const syncStatus = document.getElementById('syncStatus');
+            if (syncStatus) {
+                syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> Baza ulanmoqda...';
+                syncStatus.style.color = '#f59e0b';
+            }
+            return; // Don't try to load data yet
+        }
+
         const [prodRes, matRes, histRes, globalRes] = await Promise.all([
             fetch(`${API_URL}/products`),
             fetch(`${API_URL}/materials`),
@@ -244,13 +258,14 @@ async function loadDataSilently() {
             syncStatus.style.color = 'var(--accent-emerald)';
         }
 
+        localStorage.setItem('calibri_erp_state', JSON.stringify(state));
         updateUI();
     } catch (err) {
-        console.warn("Silent sync failed - Server or MongoDB unreachable.");
+        console.warn("Silent sync failed:", err.message);
         const syncStatus = document.getElementById('syncStatus');
         if (syncStatus) {
-            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: #f43f5e; border-radius: 50%;"></span> Server ochiq emas';
-            syncStatus.style.color = '#f43f5e';
+            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> Server uyg\'onmoqda...';
+            syncStatus.style.color = '#f59e0b';
         }
     }
 }
