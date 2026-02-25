@@ -390,8 +390,15 @@ function calculateDaysPassed(createdAt) {
     if (!createdAt) return 0;
     const start = new Date(createdAt);
     if (isNaN(start.getTime())) return 0;
-    const today = new Date();
-    const diffTime = Math.abs(today - start);
+
+    // Use filterDate (active date) instead of real today
+    const fdStr = state.filterDate || getTodayStr();
+    const parts = fdStr.split('-'); // DD-MM-YYYY
+    const activeDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+    if (isNaN(activeDate.getTime())) return 0;
+
+    const diffTime = activeDate - start;
+    if (diffTime < 0) return 0;
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
 }
@@ -712,12 +719,9 @@ function toggleSalaryPayment(taskId) {
         return; // Already paid
     }
 
-    // Find the task amount to deduct from balance
-    const tasks = calculateSalaries(state.history[dStr]);
-    const task = tasks.find(t => t.id === taskId);
-    if (task) {
-        state.totalBalance -= task.total;
-    }
+    // Foyda balans HECH QACHON kamaymasligi kerak!
+    // Oylik faqat rasxod (chiqim) sifatida hisoblanadi.
+    // totalBalance faqat sotuv orqali ko'payadi.
 
     state.history[dStr].paidWorkers.push(taskId);
     updateUI();
@@ -1092,46 +1096,26 @@ function updateDatePicker() {
     }
 }
 
-function addNewDate() {
-    const today = getTodayStr(); // 17-02-2026
-
-    // If today already exists, user might want "Tomorrow" or just jump to today
-    if (state.history[today]) {
-        if (confirm(`Bugungi sana (${formatDateForUI(today)}) allaqachon mavjud. O'sha sanaga o'tishni xohlaysizmi?`)) {
-            state.filterDate = today;
-            updateUI();
-            save();
-        }
-        return;
-    }
-
-    // If today does NOT exist, create it
-    if (confirm(`Yangi ish kuni ochilsinmi? (${formatDateForUI(today)})`)) {
-        state.filterDate = today;
-        state.history[today] = { production: [], sales: [], paidWorkers: [] };
-        updateUI();
-        save();
-        alert(`Yangi kun (${formatDateForUI(today)}) muvaffaqiyatli ochildi! Ishlaringizga omad.`);
-    }
-}
+// addNewDate() — faqat birinchi funksiya ishlatiladi (manual prompt orqali, line 323)
 
 // Connection State Listener (Real-time feedback)
 async function checkBackendConnection() {
     const el = document.getElementById('syncStatus');
     if (!el) return;
     try {
-        const res = await fetch(`${API_URL}/`);
-        if (res.ok) {
-            el.innerHTML = '<span style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></span> Backend ulandi 🍃';
+        const res = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(10000) });
+        const data = await res.json();
+        if (data.database === 'connected') {
+            el.innerHTML = '<span style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></span> Bulut bilan ulangan 🍃';
             el.style.color = '#10b981';
             isSynced = true;
         } else {
-            throw new Error();
+            el.innerHTML = '<span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> Baza ulanmoqda...';
+            el.style.color = '#f59e0b';
         }
     } catch (e) {
-        el.innerHTML = '<span style="width: 8px; height: 8px; background: #ef4444; border-radius: 50%;"></span> Server ochiq emas...';
-        el.style.color = '#ef4444';
-        isSynced = false;
+        el.innerHTML = '<span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> Server uyg\'onmoqda...';
+        el.style.color = '#f59e0b';
     }
 }
 setInterval(checkBackendConnection, 5000);
