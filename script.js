@@ -93,29 +93,20 @@ function deepMergeState(local, cloud) {
         });
     }
 
-    // 2. Array Merging (Trust cloud for Sklad items if they exist)
-    // This prevents deleted items from coming back, while still allowing local additions to persist
     const mergeArrays = (localArr, cloudArr) => {
-        if (!Array.isArray(cloudArr) || cloudArr.length === 0) return localArr;
-        // If we have cloud data, we generally trust it for the state of the Sklad
-        // However, if we JUST added something locally, it might not be in the cloud yet
-        const cloudIds = new Set(cloudArr.map(x => x.id));
-        const result = [...cloudArr];
+        if (!Array.isArray(cloudArr)) return localArr;
+        if (!Array.isArray(localArr)) return cloudArr;
 
-        if (Array.isArray(localArr)) {
-            localArr.forEach(item => {
-                // If an item is in local but NOT in cloud, it'salmost certainly a NEW item 
-                // that hasn't synced yet. We keep those.
-                // WE DO NOT restore an item that is in the cloud but NOT in local, 
-                // because that means it was deleted locally!
-                if (item && item.id && !cloudIds.has(item.id)) {
-                    // Check if it's very new (e.g. within last 10 seconds) to avoid ghosts
-                    const isVeryNew = (Date.now() - (item.createdAt || 0)) < 10000;
-                    if (isVeryNew) result.push(item);
-                }
-            });
-        }
-        return result;
+        const localIds = new Set(localArr.map(x => x.id));
+        const cloudIds = new Set(cloudArr.map(x => x.id));
+
+        // 1. Keep cloud items that haven't been deleted locally (Local is authoritative for existence)
+        const cloudItems = cloudArr.filter(item => localIds.has(item.id));
+
+        // 2. Keep local items that are new (not yet in cloud)
+        const newLocalItems = localArr.filter(item => !cloudIds.has(item.id));
+
+        return [...cloudItems, ...newLocalItems];
     };
 
     merged.products = mergeArrays(local.products, cloud.products);
