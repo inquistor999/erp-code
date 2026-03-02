@@ -139,7 +139,7 @@ async function loadData() {
         const health = await healthRes.json();
 
         if (health.database !== 'connected') {
-            console.warn('DB not ready yet, using local data. Retrying in 3s...');
+            console.warn('Baza tayyor emas, lokal ma\'lumotlardan foydalanilmoqda. 3 soniyadan so\'ng qayta uriniladi...');
             setTimeout(loadData, 3000);
             isSynced = false;
             updateUI();
@@ -181,7 +181,7 @@ async function loadData() {
         // Visual status update
         const syncStatus = document.getElementById('syncStatus');
         if (syncStatus) {
-            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: var(--accent-emerald); border-radius: 50%;"></span> Bulut bilan ulangan';
+            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: var(--accent-emerald); border-radius: 50%;"></span> Bulutga ulandi';
             syncStatus.style.color = 'var(--accent-emerald)';
         }
 
@@ -270,7 +270,7 @@ async function loadDataSilently() {
 
         const syncStatus = document.getElementById('syncStatus');
         if (syncStatus) {
-            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: var(--accent-emerald); border-radius: 50%;"></span> Bulut bilan ulangan';
+            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: var(--accent-emerald); border-radius: 50%;"></span> Bulutga ulandi';
             syncStatus.style.color = 'var(--accent-emerald)';
         }
 
@@ -313,7 +313,7 @@ async function save() {
             })
         });
 
-        console.log("Elite Sync Complete 🍃");
+        console.log("Sinxronizatsiya yakunlandi 🍃");
         updateUI();
     } catch (err) {
         console.error("Collaboration Sync Error:", err);
@@ -364,8 +364,8 @@ function submitPendingWork() {
         createdAt: new Date().toISOString()
     });
 
-    console.log("Worker added to Ojidaniya:", workerName);
-    alert("Ojidaniya: Ishchi muvaffaqiyatli qo'shildi! ✅");
+    console.log("Ishchi Kutilayotganlarga qo'shildi:", workerName);
+    alert("Kutilayotganlar: Ishchi muvaffaqiyatli qo'shildi! ✅");
 
     document.getElementById('pendingAddForm').style.display = 'none';
     // Clear inputs
@@ -518,7 +518,7 @@ function openAddModal() {
 // Deletion with Security
 function deleteSkladItem(type, id) {
     secureDelete(() => {
-        if (!confirm("Haqiqatdan ham ushbu tovarna bazadan o'chirmoqchimisiz?")) return;
+        if (!confirm("Haqiqatan ham ushbu tovarni bazadan o'chirmoqchimisiz?")) return;
 
         if (type === 'material') {
             state.materials = state.materials.filter(m => m.id !== id);
@@ -572,8 +572,8 @@ function submitUniversalAdd() {
         return alert("Xatolik: Tovar turi tanlanmadi!");
     }
 
-    alert("Sklad: Tovar muvaffaqiyatli qo'shildi! ✅");
-    console.log("Material/Product added to Sklad:", name);
+    alert("Ombor: Tovar muvaffaqiyatli qo'shildi! ✅");
+    console.log("Material/Mahsulot Omborga qo'shildi:", name);
     document.getElementById('universalAddForm').style.display = 'none';
     resetForms();
     updateUI(); // Instant update
@@ -611,7 +611,7 @@ function submitProduction() {
 
         const totalUsed = totalQty * sarf;
         if (mat.stock < totalUsed) {
-            if (!confirm(`${mat.name} omborda yetarli emas! (Bor: ${mat.stock}, Kerak: ${totalUsed}). Davom etishni xohlaysizmi? (Skladda minusga kiradi)`)) {
+            if (!confirm(`${mat.name} omborda yetarli emas! (Bor: ${mat.stock}, Kerak: ${totalUsed}). Davom etishni xohlaysizmi? (Omborda minusga kiradi)`)) {
                 return;
             }
         }
@@ -755,9 +755,9 @@ function updateUI() {
         // Dashboard
         const balEl = document.getElementById('todayProfit');
         if (balEl) {
-            // Foyda Balans (Day-Specific Revenue/Profit)
-            // User request: "foyda balans faqat kunda kun bolishi kere yangi kun ochilganda foyda balans 0 bolib qolishi kere"
-            // "foyda balans faqat kopayadi u kamaymaydi oylik tolanganda u rasxoddan minus qilinadi foyda balans esa shundoq qoladi"
+            // Foyda Balans (Kunda-kunlik tushum/foyda)
+            // Foyda balans faqat kunda-kunlik bo'lishi kerak. Yangi kun ochilganda u 0 bo'lib qoladi.
+            // Foyda balans faqat ko'payadi, u kamaymaydi. Oylik to'langanda u xarajatdan (chiqimdan) minus qilinadi, foyda balans esa o'zgarmaydi.
 
             let dRev = dayData.sales.reduce((a, b) => a + (b.qty * b.price), 0);
             balEl.innerText = dRev.toLocaleString() + " So'm";
