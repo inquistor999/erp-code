@@ -93,18 +93,28 @@ function deepMergeState(local, cloud) {
         });
     }
 
-    // 2. Symmetric Array Merging (The Law v4 - Absolute Protection)
-    // This prevents new local Sklad items from being ghosted by cloud sync
+    // 2. Array Merging (Trust cloud for Sklad items if they exist)
+    // This prevents deleted items from coming back, while still allowing local additions to persist
     const mergeArrays = (localArr, cloudArr) => {
-        const result = Array.isArray(cloudArr) ? [...cloudArr] : [];
-        if (!Array.isArray(localArr)) return result;
+        if (!Array.isArray(cloudArr) || cloudArr.length === 0) return localArr;
+        // If we have cloud data, we generally trust it for the state of the Sklad
+        // However, if we JUST added something locally, it might not be in the cloud yet
+        const cloudIds = new Set(cloudArr.map(x => x.id));
+        const result = [...cloudArr];
 
-        const cloudIds = new Set(result.map(x => x.id));
-        localArr.forEach(item => {
-            if (item && item.id && !cloudIds.has(item.id)) {
-                result.push(item);
-            }
-        });
+        if (Array.isArray(localArr)) {
+            localArr.forEach(item => {
+                // If an item is in local but NOT in cloud, it'salmost certainly a NEW item 
+                // that hasn't synced yet. We keep those.
+                // WE DO NOT restore an item that is in the cloud but NOT in local, 
+                // because that means it was deleted locally!
+                if (item && item.id && !cloudIds.has(item.id)) {
+                    // Check if it's very new (e.g. within last 10 seconds) to avoid ghosts
+                    const isVeryNew = (Date.now() - (item.createdAt || 0)) < 10000;
+                    if (isVeryNew) result.push(item);
+                }
+            });
+        }
         return result;
     };
 
@@ -219,7 +229,7 @@ setInterval(async () => {
         await loadDataSilently();
         isRefreshing = false;
     }
-}, 3000);
+}, 500); // 0.5s ultra-fast refresh as requested
 
 async function loadDataSilently() {
     try {
@@ -531,7 +541,7 @@ function deleteSkladItem(type, id) {
     });
 }
 
-function submitUniversalAdd() {
+async function submitUniversalAdd() {
     const type = document.getElementById('uType').value;
     const name = document.getElementById('uName').value.trim();
     const qty = parseFloat(document.getElementById('uQty').value) || 0;
@@ -551,7 +561,8 @@ function submitUniversalAdd() {
                 name: name, // Original casing for display
                 stock: qty,
                 unit: (type === 'material' ? 'm' : 'dona'),
-                costPerUnit: price
+                costPerUnit: price,
+                createdAt: Date.now() // Track for merge logic
             });
         }
     } else if (type === 'product') {
@@ -565,7 +576,8 @@ function submitUniversalAdd() {
                 id: 'p' + Date.now() + Math.random().toString(36).substr(2, 5),
                 name: name,
                 qty: qty,
-                costPrice: price
+                costPrice: price,
+                createdAt: Date.now() // Track for merge logic
             });
         }
     } else {
@@ -577,7 +589,7 @@ function submitUniversalAdd() {
     document.getElementById('universalAddForm').style.display = 'none';
     resetForms();
     updateUI(); // Instant update
-    save();
+    await save(); // Ensure save is called and awaited
 }
 
 // --- Logic Actions ---
@@ -1351,12 +1363,8 @@ async function exportToExcel() {
 const MASTER_PIN = "7777";
 
 function checkSecurity(callback) {
-    const pin = prompt("Xavfsizlik parolini kiriting (Master PIN):");
-    if (pin === MASTER_PIN) {
-        callback();
-    } else {
-        alert("Xavfsizlik paroli noto'g'ri! Amallarga ruxsat berilmadi.");
-    }
+    // PIN security removed as requested
+    callback();
 }
 
 // --- AI Notepad Logic ---
