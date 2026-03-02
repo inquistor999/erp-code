@@ -21,6 +21,7 @@ const historySchema = new mongoose.Schema({
         time: String
     }],
     paidWorkers: [String], // Array of task IDs (e.g., "prodId_workerIdx")
+    deleted: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now }
 });
 

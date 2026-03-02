@@ -4,8 +4,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calibri</title>
-    <link rel="stylesheet" href="style.css?v=10">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Calibri ERP Premium</title>
+    <link rel="stylesheet" href="style.css?v=11">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -40,6 +43,7 @@
             font-weight: bold;
             background: linear-gradient(135deg, #3b82f6, #8b5cf6);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
             margin-bottom: 20px;
             letter-spacing: 2px;
@@ -120,6 +124,8 @@
                     </select>
                     <button class="btn-thin" onclick="addNewDate()" title="Yangi sana qo'shish"
                         style="padding: 0.4rem 0.6rem; font-weight: bold;">+</button>
+                    <button class="btn-thin" onclick="deleteCurrentDate()" title="Ushbu sanani o'chirish"
+                        style="padding: 0.4rem 0.6rem; color: #f43f5e;">🗑️</button>
                 </div>
                 <div id="syncStatus"
                     style="font-size: 0.7rem; color: var(--accent-emerald); opacity: 0.8; display: flex; align-items: center; gap: 4px;">
@@ -127,6 +133,8 @@
                         style="width: 8px; height: 8px; background: var(--accent-emerald); border-radius: 50%;"></span>
                     Bulut bilan ulangan
                 </div>
+                <button class="secondary-btn" onclick="openRecycleBin()"
+                    style="border-color: #f59e0b; color: #f59e0b;">🗑️ O'chirilganlar</button>
                 <button class="secondary-btn" onclick="exportToExcel()">Excel (XLSX) Yuklash</button>
             </div>
         </header>
@@ -403,7 +411,7 @@
         </div>
     </div>
 
-    <script src="script.js?v=13"></script>
+    <script src="script.js?v=14"></script>
     <!-- Pending Work Modal -->
     <div id="pendingAddForm" class="modal-overlay" style="display: none;">
         <div class="glass-card modal-content" style="max-width: 400px; width: 90%;">
@@ -424,6 +432,22 @@
                 <button class="primary-btn" style="margin-top: 0;" onclick="submitPendingWork()">Qo'shish</button>
                 <button class="secondary-btn"
                     onclick="document.getElementById('pendingAddForm').style.display='none'">Bekor Qilish</button>
+            </div>
+        </div>
+    </div>
+    <!-- Recycle Bin Modal -->
+    <div id="recycleBinModal" class="modal-overlay" style="display: none;">
+        <div class="glass-card modal-content" style="max-width: 500px; width: 90%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3>📦 O'chirilgan Sanalar</h3>
+                <div class="notepad-close" onclick="closeRecycleBin()" style="cursor: pointer;">✕</div>
+            </div>
+            <div id="recycleBinList"
+                style="max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem;">
+                <!-- Deleted dates list -->
+            </div>
+            <div style="margin-top: 1.5rem; text-align: right;">
+                <button class="secondary-btn" onclick="closeRecycleBin()">Yopish</button>
             </div>
         </div>
     </div>

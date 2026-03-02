@@ -304,7 +304,7 @@ async function save() {
             body: JSON.stringify({
                 products: state.products,
                 materials: state.materials,
-                history: { date: dStr, ...dayData },
+                history: Object.values(state.history), // Bulk sync all history records to preserve 'deleted' flags
                 globalState: {
                     totalBalance: state.totalBalance,
                     pendingWork: state.pendingWork,
@@ -755,25 +755,12 @@ function updateUI() {
         // Dashboard
         const balEl = document.getElementById('todayProfit');
         if (balEl) {
-            // Balans (Revenue) IS cumulative for the day? Or global wallet?
-            // User request: "qaysi sanani bosib uning ichiga kiradigan bolsam faqatma faqat usha sanada bolgan xarajat sotuv lar chiqib kelishi keere"
-            // "yangi sana yaratganimda hammasi tozalangan xolatda bolishi kere"
-            // BUT "sklad , ojidaniya va notepad universal ozgarmas boladi"
+            // Foyda Balans (Day-Specific Revenue/Profit)
+            // User request: "foyda balans faqat kunda kun bolishi kere yangi kun ochilganda foyda balans 0 bolib qolishi kere"
+            // "foyda balans faqat kopayadi u kamaymaydi oylik tolanganda u rasxoddan minus qilinadi foyda balans esa shundoq qoladi"
 
-            // So 'todayProfit' in Dashboard is likely "Today's Revenue/Profit", NOT Global Wallet.
-            // Converting to Day-Specific logic where appropriate.
-
-            // However, state.totalBalance is currently a GLOBAL wallet. 
-            // If user wants "Today's Status", we show Day metrics.
-            // If user wants "Wallet", we show Global.
-            // Given "kunlik atchot" context, the big numbers often imply "Today".
-            // But let's keep "Balans" as Global Wallet (Money in hand), 
-            // and the stats below as Day Specific.
-
-            // Wait, previous code used state.totalBalance for the big header.
-            // Let's keep it as Global Wallet for now as it aggregates all cash.
-            // The small stats are day-specific.
-            balEl.innerText = state.totalBalance.toLocaleString() + " So'm";
+            let dRev = dayData.sales.reduce((a, b) => a + (b.qty * b.price), 0);
+            balEl.innerText = dRev.toLocaleString() + " So'm";
             balEl.className = 'stat-value positive';
         }
 
@@ -1067,10 +1054,10 @@ function updateDatePicker() {
     const headerDate = document.getElementById('currentDateDisplay');
     if (!datePicker) return;
 
-    // Barcha mavjud sanalarni yig'amiz
-    const historicalDates = Object.keys(state.history || {});
+    // Barcha mavjud sanalarni yig'amiz (va o'chirilmaganlarini filtrlaymiz)
+    const historicalDates = Object.keys(state.history || {}).filter(d => !state.history[d].deleted);
     // Add current filterDate to list if not present (handles new day creation)
-    if (state.filterDate && !historicalDates.includes(state.filterDate)) {
+    if (state.filterDate && !historicalDates.includes(state.filterDate) && !state.history[state.filterDate]?.deleted) {
         historicalDates.push(state.filterDate);
     }
 
@@ -1530,6 +1517,76 @@ function resetEntireDatabase() {
 // Wrapper for sensitive deletes
 function secureDelete(callback) {
     checkSecurity(callback);
+}
+
+// --- Recycle Bin Functions ---
+function deleteCurrentDate() {
+    const dStr = state.filterDate;
+    if (!dStr) return;
+
+    if (confirm(`Haqiqatdan ham ${formatDateForUI(dStr)} sanasini o'chirib yubormoqchimisiz?`)) {
+        if (!state.history[dStr]) state.history[dStr] = { production: [], sales: [] };
+        state.history[dStr].deleted = true;
+
+        // Find next available date or go to today
+        const remainingDates = Object.keys(state.history).filter(d => !state.history[d].deleted);
+        state.filterDate = remainingDates[0] || getTodayStr();
+
+        updateUI();
+        save();
+        alert("Sana o'chirildi va savatchaga o'tkazildi.");
+    }
+}
+
+function openRecycleBin() {
+    const modal = document.getElementById('recycleBinModal');
+    const list = document.getElementById('recycleBinList');
+    if (!modal || !list) return;
+
+    const deletedDates = Object.keys(state.history || {}).filter(d => state.history[d].deleted);
+
+    list.innerHTML = deletedDates.map(d => `
+        <div class="inventory-item" style="border-left: 4px solid #f59e0b;">
+            <div style="flex:1;">
+                <b style="color:var(--text-primary)">${formatDateForUI(d)}</b>
+                <p style="font-size:0.75rem; color:var(--text-secondary)">
+                    ${(state.history[d].production?.length || 0)} ish, ${(state.history[d].sales?.length || 0)} sotuv
+                </p>
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button class="check-btn" onclick="restoreDate('${d}')" title="Qayta tiklash" style="background:#10b981;">✓</button>
+                <button class="check-btn" onclick="permanentlyDeleteDate('${d}')" title="Butunlay o'chirish" style="background:#f43f5e;">🗑️</button>
+            </div>
+        </div>
+    `).join('') || '<p style="text-align:center; color:gray; padding:1rem;">O\'chirilgan sanalar yo\'q</p>';
+
+    modal.style.display = 'flex';
+}
+
+function closeRecycleBin() {
+    document.getElementById('recycleBinModal').style.display = 'none';
+}
+
+function restoreDate(dStr) {
+    if (state.history[dStr]) {
+        state.history[dStr].deleted = false;
+        state.filterDate = dStr;
+        updateUI();
+        save();
+        closeRecycleBin();
+        alert("Sana muvaffaqiyatli tiklandi.");
+    }
+}
+
+function permanentlyDeleteDate(dStr) {
+    secureDelete(() => {
+        if (confirm(`${formatDateForUI(dStr)} sanasini BUTUNLAY o'chirib yubormoqchimisiz? Bu amalni ortga qaytarib bo'lmaydi!`)) {
+            delete state.history[dStr];
+            updateUI();
+            save();
+            openRecycleBin(); // Refresh list
+        }
+    });
 }
 
 // Init

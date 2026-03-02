@@ -84,11 +84,16 @@ router.post('/sync-all', async (req, res) => {
                 } catch (e) { errors.push(`Material ${m.id}: ${e.message}`); }
             }
         }
-        // 3. Sync History (Active Date)
-        if (history && history.date) {
-            try {
-                await History.findOneAndUpdate({ date: history.date }, history, { upsert: true });
-            } catch (e) { errors.push(`History ${history.date}: ${e.message}`); }
+        // 3. Sync History (Support for Multiple Dates/Bulk)
+        if (history) {
+            const historyArray = Array.isArray(history) ? history : [history];
+            for (const h of historyArray) {
+                try {
+                    if (h.date) {
+                        await History.findOneAndUpdate({ date: h.date }, h, { upsert: true });
+                    }
+                } catch (e) { errors.push(`History ${h.date}: ${e.message}`); }
+            }
         }
         // 4. Sync Global State (Balance, Pending, Notepad)
         if (globalState) {
