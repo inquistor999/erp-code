@@ -118,4 +118,20 @@ router.post('/sync-all', async (req, res) => {
     }
 });
 
+// --- DELETE History Record (Permanent Deletion) ---
+router.delete('/history/:date', async (req, res) => {
+    try {
+        const { date } = req.params;
+        const result = await History.findOneAndDelete({ date: date });
+        if (result) {
+            res.json({ success: true, message: `History for ${date} deleted.` });
+        } else {
+            res.status(404).json({ success: false, message: 'Record not found.' });
+        }
+    } catch (err) {
+        console.error('DELETE /history/:date error:', err.message);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 module.exports = router;

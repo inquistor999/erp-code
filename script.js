@@ -4,7 +4,7 @@ window.onerror = function (message, source, lineno, colno, error) {
     const modal = document.getElementById('globalErrorModal');
     if (modal) {
         modal.style.display = 'flex';
-        modal.querySelector('p').innerText = `Xatolik: ${message}`;
+        modal.querySelector('p').innerText = `Хатолик: ${message}`;
     }
     const loader = document.getElementById('loader');
     if (loader) loader.style.display = 'none'; // Ensure loader doesn't block error
@@ -17,8 +17,8 @@ const API_URL = window.location.origin + '/api';
 // --- Advanced State Management ---
 const DEFAULT_STATE = {
     materials: [
-        { id: 'm1', name: 'Paxta', stock: 100, unit: 'm', costPerUnit: 15000 },
-        { id: 'm2', name: 'Ipak', stock: 50, unit: 'm', costPerUnit: 45000 }
+        { id: 'm1', name: 'Пахта', stock: 100, unit: 'м', costPerUnit: 15000 },
+        { id: 'm2', name: 'Ипак', stock: 50, unit: 'м', costPerUnit: 45000 }
     ],
     products: [],
     history: {},
@@ -56,6 +56,7 @@ function formatDateForUI(dStr) {
 
 // --- Persistence & Sync Logic ---
 let isSynced = false;
+let isSyncLocked = false; // Lock to prevent merge during critical actions (like deletion)
 
 // Robust Deep Merge: Prevents cloud from wiping local if local is more complete
 function deepMergeState(local, cloud) {
@@ -71,12 +72,20 @@ function deepMergeState(local, cloud) {
 
     // 1. Merge History (Dates)
     if (local.history && cloud.history) {
-        merged.history = { ...cloud.history };
-        Object.keys(local.history).forEach(dateKey => {
+        // Start with local history as base to respect deletions
+        merged.history = { ...local.history };
+
+        Object.keys(cloud.history).forEach(dateKey => {
             const localDay = local.history[dateKey];
             const cloudDay = cloud.history[dateKey];
 
-            if (cloudDay) {
+            if (localDay) {
+                // If locally deleted, keep it deleted unless cloud also says it's deleted
+                if (localDay.deleted && !cloudDay.deleted) {
+                    merged.history[dateKey] = localDay;
+                    return;
+                }
+
                 const localCount = (localDay.production?.length || 0) + (localDay.sales?.length || 0);
                 const cloudCount = (cloudDay.production?.length || 0) + (cloudDay.sales?.length || 0);
 
@@ -86,24 +95,29 @@ function deepMergeState(local, cloud) {
                         const mergedPaid = Array.from(new Set([...(localDay.paidWorkers || []), ...cloudDay.paidWorkers]));
                         merged.history[dateKey].paidWorkers = mergedPaid;
                     }
+                } else if (localCount === cloudCount && localDay.deleted !== cloudDay.deleted) {
+                    // Same counts, but deleted status differs - local is usually more "recent" for user actions
+                    merged.history[dateKey] = localDay;
                 }
             } else {
-                merged.history[dateKey] = localDay;
+                // If in cloud but not local, it's either NEW from another client or just deleted here.
+                // Given the one-user nature, we'll assume it's NEW if it's not in local yet.
+                merged.history[dateKey] = cloudDay;
             }
         });
     }
 
     const mergeArrays = (localArr, cloudArr) => {
-        if (!Array.isArray(cloudArr)) return localArr;
-        if (!Array.isArray(localArr)) return cloudArr;
+        if (!Array.isArray(cloudArr)) return localArr || [];
+        if (!Array.isArray(localArr) || localArr.length === 0) return cloudArr || [];
 
-        const localIds = new Set(localArr.map(x => x.id));
         const cloudIds = new Set(cloudArr.map(x => x.id));
 
-        // 1. Keep cloud items that haven't been deleted locally (Local is authoritative for existence)
-        const cloudItems = cloudArr.filter(item => localIds.has(item.id));
+        // 1. DANGER FIX: Do NOT delete cloud items just because local doesn't have them. 
+        // The cloud is the primary source of truth for shared items across devices.
+        const cloudItems = [...cloudArr];
 
-        // 2. Keep local items that are new (not yet in cloud)
+        // 2. Keep local items that are completely new (not yet stored in the cloud)
         const newLocalItems = localArr.filter(item => !cloudIds.has(item.id));
 
         return [...cloudItems, ...newLocalItems];
@@ -140,7 +154,7 @@ async function loadData() {
         const health = await healthRes.json();
 
         if (health.database !== 'connected') {
-            console.warn('Baza tayyor emas, lokal ma\'lumotlardan foydalanilmoqda. 3 soniyadan so\'ng qayta uriniladi...');
+            console.warn('База тайёр эмас, локал маълумотлардан фойдаланилмоқда. 3 сониядан сўнг қайта уринилади...');
             setTimeout(loadData, 3000);
             isSynced = false;
             updateUI();
@@ -182,7 +196,7 @@ async function loadData() {
         // Visual status update
         const syncStatus = document.getElementById('syncStatus');
         if (syncStatus) {
-            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: var(--accent-emerald); border-radius: 50%;"></span> Bulutga ulandi';
+            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: var(--accent-emerald); border-radius: 50%;"></span> Булутга уланди';
             syncStatus.style.color = 'var(--accent-emerald)';
         }
 
@@ -215,14 +229,15 @@ loadData();
 // Real-time refresh pulse (3s for Render stability)
 let isRefreshing = false;
 setInterval(async () => {
-    if (isSynced && !isRefreshing) {
+    if (isSynced && !isRefreshing && !isSyncLocked) {
         isRefreshing = true;
         await loadDataSilently();
         isRefreshing = false;
     }
-}, 500); // 0.5s ultra-fast refresh as requested
+}, 3000); // Slowed down slightly for stability, was 500ms
 
 async function loadDataSilently() {
+    if (saveTimeout !== null) return; // Prevent overwriting unsaved local changes
     try {
         // Quick health check first
         const healthRes = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(8000) });
@@ -232,7 +247,7 @@ async function loadDataSilently() {
             // DB is reconnecting, show waiting message
             const syncStatus = document.getElementById('syncStatus');
             if (syncStatus) {
-                syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> Baza ulanmoqda...';
+                syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> База уланмоқда...';
                 syncStatus.style.color = '#f59e0b';
             }
             return; // Don't try to load data yet
@@ -271,7 +286,7 @@ async function loadDataSilently() {
 
         const syncStatus = document.getElementById('syncStatus');
         if (syncStatus) {
-            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: var(--accent-emerald); border-radius: 50%;"></span> Bulutga ulandi';
+            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: var(--accent-emerald); border-radius: 50%;"></span> Булутга уланди';
             syncStatus.style.color = 'var(--accent-emerald)';
         }
 
@@ -281,49 +296,62 @@ async function loadDataSilently() {
         console.warn("Silent sync failed:", err.message);
         const syncStatus = document.getElementById('syncStatus');
         if (syncStatus) {
-            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> Server uyg\'onmoqda...';
+            syncStatus.innerHTML = '<span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> Сервер уйғонмоқда...';
             syncStatus.style.color = '#f59e0b';
         }
     }
 }
 
 // 2. Global Save Function (Optimized for Bulk Sync & Collaboration)
-async function save() {
-    // Instant Local Save
+// 2. Global Save Function (Optimized for Bulk Sync & Collaboration)
+let saveTimeout = null;
+async function save(immediate = false) {
+    // Instant Local Save (Always synchronous for reliability)
     localStorage.setItem('calibri_erp_state', JSON.stringify(state));
 
     if (!isSynced) return;
 
-    try {
-        const dStr = state.filterDate || getTodayStr();
-        const dayData = state.history[dStr] || { production: [], sales: [], paidWorkers: [] };
+    // Debounce cloud sync to prevent UI lag during rapid edits
+    if (saveTimeout) clearTimeout(saveTimeout);
 
-        // Elite sync: Send everything in one batch for speed & consistency
-        await fetch(`${API_URL}/sync-all`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                products: state.products,
-                materials: state.materials,
-                history: Object.values(state.history), // Bulk sync all history records to preserve 'deleted' flags
-                globalState: {
-                    totalBalance: state.totalBalance,
-                    pendingWork: state.pendingWork,
-                    notepad: state.notepad
-                }
-            })
-        });
+    const performSync = async () => {
+        try {
+            saveTimeout = null; // Clear sync lock
+            const dStr = state.filterDate || getTodayStr();
 
-        console.log("Sinxronizatsiya yakunlandi 🍃");
-        updateUI();
-    } catch (err) {
-        console.error("Collaboration Sync Error:", err);
+            // Elite sync: Send everything in one batch for speed & consistency
+            await fetch(`${API_URL}/sync-all`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    products: state.products,
+                    materials: state.materials,
+                    history: Object.values(state.history),
+                    globalState: {
+                        totalBalance: state.totalBalance,
+                        pendingWork: state.pendingWork,
+                        notepad: state.notepad
+                    }
+                })
+            });
+
+            console.log("Синхронизация якунланди 🍃");
+            // No need for updateUI() here as it usually triggers from the action itself
+        } catch (err) {
+            console.error("Collaboration Sync Error:", err);
+        }
+    };
+
+    if (immediate) {
+        await performSync();
+    } else {
+        saveTimeout = setTimeout(performSync, 1000); // Wait 1s of inactivity before cloud sync
     }
 }
 
 function addNewDate() {
     const todayUI = formatDateForUI(getTodayStr());
-    const newDateUI = prompt("Yangi sana kiriting (Format: DD/MM/YYYY)\nMasalan: 03/03/2026", todayUI);
+    const newDateUI = prompt("Янги сана киритинг (Формат: КК/ОО/ЙЙЙЙ)\nМасалан: 03/03/2026", todayUI);
     if (!newDateUI) return;
 
     // Convert UI (/) to DB (-)
@@ -331,7 +359,7 @@ function addNewDate() {
 
     // Format check (XX-XX-XXXX)
     const regex = /^\d{2}-\d{2}-\d{4}$/;
-    if (!regex.test(newDateDB)) return alert("Sana formati noto'g'ri! (DD/MM/YYYY) \nMasalan: 25/03/2026");
+    if (!regex.test(newDateDB)) return alert("Сана формати нотўғри! (КК/ОО/ЙЙЙЙ) \nМасалан: 25/03/2026");
 
     if (!state.history) state.history = {};
 
@@ -353,7 +381,7 @@ function submitPendingWork() {
     const itemName = document.getElementById('pItemName').value.trim();
     const qty = parseInt(document.getElementById('pQty').value);
 
-    if (!workerName || !itemName || isNaN(qty)) return alert("Ma'lumotlarni to'ldiring!");
+    if (!workerName || !itemName || isNaN(qty)) return alert("Маълумотларни тўлдиринг!");
 
     if (!state.pendingWork) state.pendingWork = [];
 
@@ -365,8 +393,8 @@ function submitPendingWork() {
         createdAt: new Date().toISOString()
     });
 
-    console.log("Ishchi Kutilayotganlarga qo'shildi:", workerName);
-    alert("Kutilayotganlar: Ishchi muvaffaqiyatli qo'shildi! ✅");
+    console.log("Ишчи Кутилаётганларга қўшилди:", workerName);
+    alert("Кутилаётганлар: Ишчи муваффақиятли қўшилди! ✅");
 
     document.getElementById('pendingAddForm').style.display = 'none';
     // Clear inputs
@@ -465,18 +493,18 @@ function addMaterialRow() {
     div.id = `mat-row-${materialRowCounter}`;
     div.innerHTML = `
         <div class="input-group">
-            <label>Mato</label>
+            <label>Мато</label>
             <select class="row-mat-id" style="background:transparent;">
-                ${state.materials.map(m => `<option value="${m.id}">${m.name} (${m.stock}m)</option>`).join('')}
+                ${state.materials.map(m => `<option value="${m.id}">${m.name} (${m.stock}м)</option>`).join('')}
             </select>
         </div>
         <div class="input-group">
-            <label>1 donaga sarf</label>
+            <label>1 донага сарф</label>
             <input type="number" class="row-mat-sarf" placeholder="0.0">
         </div>
         <div class="input-group">
-            <label>1m Narxi</label>
-            <input type="number" class="row-mat-price" placeholder="So'm">
+            <label>1м Нархи</label>
+            <input type="number" class="row-mat-price" placeholder="Сўм">
         </div>
         <div class="remove-btn" onclick="window.removeRow('mat-row-${materialRowCounter}')">×</div>
     `;
@@ -493,16 +521,16 @@ function addWorkerRow() {
     div.id = `worker-row-${workerRowCounter}`;
     div.innerHTML = `
         <div class="input-group">
-            <label>Ishchi Ismi</label>
-            <input type="text" class="row-worker-name" placeholder="Ism">
+            <label>Ишчи Исми</label>
+            <input type="text" class="row-worker-name" placeholder="Исм">
         </div>
         <div class="input-group">
-            <label>Bitirdi</label>
+            <label>Битирди</label>
             <input type="number" class="row-worker-qty" placeholder="0">
         </div>
         <div class="input-group">
-            <label>1 dona xaqqi</label>
-            <input type="number" class="row-worker-price" placeholder="So'm">
+            <label>1 дона ҳаққи</label>
+            <input type="number" class="row-worker-price" placeholder="Сўм">
         </div>
         <div class="remove-btn" onclick="window.removeRow('worker-row-${workerRowCounter}')">×</div>
     `;
@@ -519,7 +547,7 @@ function openAddModal() {
 // Deletion with Security
 function deleteSkladItem(type, id) {
     secureDelete(() => {
-        if (!confirm("Haqiqatan ham ushbu tovarni bazadan o'chirmoqchimisiz?")) return;
+        if (!confirm("Ҳақиқатан ҳам ушбу товарни базадан ўчирмоқчимисиз?")) return;
 
         if (type === 'material') {
             state.materials = state.materials.filter(m => m.id !== id);
@@ -538,7 +566,7 @@ async function submitUniversalAdd() {
     const qty = parseFloat(document.getElementById('uQty').value) || 0;
     const price = parseInt(document.getElementById('uPrice').value) || 0;
 
-    if (!name || isNaN(qty)) return alert("Ism va miqdorni kiriting!");
+    if (!name || isNaN(qty)) return alert("Исм ва миқдорни киритинг!");
 
     if (type === 'material' || type === 'detail') {
         if (!state.materials) state.materials = [];
@@ -551,7 +579,7 @@ async function submitUniversalAdd() {
                 id: 'm' + Date.now() + Math.random().toString(36).substr(2, 5),
                 name: name, // Original casing for display
                 stock: qty,
-                unit: (type === 'material' ? 'm' : 'dona'),
+                unit: (type === 'material' ? 'м' : 'дона'),
                 costPerUnit: price,
                 createdAt: Date.now() // Track for merge logic
             });
@@ -572,11 +600,11 @@ async function submitUniversalAdd() {
             });
         }
     } else {
-        return alert("Xatolik: Tovar turi tanlanmadi!");
+        return alert("Хатолик: Товар тури танланмади!");
     }
 
-    alert("Ombor: Tovar muvaffaqiyatli qo'shildi! ✅");
-    console.log("Material/Mahsulot Omborga qo'shildi:", name);
+    alert("Омбор: Товар муваффақиятли қўшилди! ✅");
+    console.log("Материал/Маҳсулот Омборга қўшилди:", name);
     document.getElementById('universalAddForm').style.display = 'none';
     resetForms();
     updateUI(); // Instant update
@@ -590,8 +618,8 @@ function submitProduction() {
     const totalQty = parseInt(document.getElementById('prodTotalQty').value);
 
     // 1. Basic Validation
-    if (!prodName) return alert("Xatolik: Mahsulot nomi kiritilmadi!");
-    if (!totalQty || totalQty <= 0) return alert("Xatolik: Mahsulot soni noto'g'ri!");
+    if (!prodName) return alert("Хатолик: Маҳсулот номи киритилмади!");
+    if (!totalQty || totalQty <= 0) return alert("Хатолик: Маҳсулот сони нотўғри!");
 
     // Gather Materials
     const matRows = document.querySelectorAll('#materialRowsContainer .dynamic-row');
@@ -614,7 +642,7 @@ function submitProduction() {
 
         const totalUsed = totalQty * sarf;
         if (mat.stock < totalUsed) {
-            if (!confirm(`${mat.name} omborda yetarli emas! (Bor: ${mat.stock}, Kerak: ${totalUsed}). Davom etishni xohlaysizmi? (Omborda minusga kiradi)`)) {
+            if (!confirm(`${mat.name} омборда етарли эмас! (Бор: ${mat.stock}, Керак: ${totalUsed}). Давом этишни хоҳлайсизми? (Омборда минусга киради)`)) {
                 return;
             }
         }
@@ -645,7 +673,7 @@ function submitProduction() {
         }
     }
 
-    if (workersDone.length === 0) return alert("Kamida bitta ishchi va uning bajargan miqdorini (dona) kiriting!");
+    if (workersDone.length === 0) return alert("Камида битта ишчи ва унинг бажарган миқдорини (дона) киритинг!");
 
     const totalBatchExp = matTotalCostForBatch + laborTotalCost;
     const dateStr = state.filterDate || getTodayStr();
@@ -686,7 +714,7 @@ function submitProduction() {
     resetForms();
     updateUI(); // Instant update
     save();
-    alert("Ishlab chiqarish muvaffaqiyatli saqlandi! ✅");
+    alert("Ишлаб чиқариш муваффақиятли сақланди! ✅");
 }
 
 function submitSale() {
@@ -695,7 +723,7 @@ function submitSale() {
     const price = parseInt(document.getElementById('salePrice').value);
 
     let prod = state.products.find(p => p.name === name);
-    if (!prod || prod.qty < qty) return alert("Omborda yetarli emas!");
+    if (!prod || prod.qty < qty) return alert("Омборда етарли эмас!");
 
     prod.qty -= qty;
     const rev = qty * price;
@@ -707,7 +735,7 @@ function submitSale() {
     state.history[dateStr].sales.push({ name, qty, price, profit, time: new Date().toLocaleTimeString() });
 
     state.totalBalance += rev;
-    alert("Sotuv qayd etildi!");
+    alert("Сотув қайд этилди!");
     resetForms();
     updateUI(); // Instant update
     save();
@@ -722,13 +750,26 @@ function toggleSalaryPayment(taskId) {
         return; // Already paid
     }
 
-    // Foyda balans HECH QACHON kamaymasligi kerak!
-    // Oylik faqat rasxod (chiqim) sifatida hisoblanadi.
-    // totalBalance faqat sotuv orqali ko'payadi.
+    // --- OPTIMISTIC UI ---
+    // Find the button and parent item immediately to provide instant feedback
+    const btn = event?.currentTarget || document.querySelector(`button[onclick*="${taskId}"]`);
+    if (btn) {
+        const item = btn.closest('.salary-item');
+        if (item) {
+            item.classList.add('paid');
+            btn.style.display = 'none'; // Hide check button immediately
+            const title = item.querySelector('h4');
+            if (title && !title.innerText.includes('✅')) title.innerText += ' ✅';
+        }
+    }
 
     state.history[dStr].paidWorkers.push(taskId);
-    updateUI();
-    save();
+
+    // Defer heavy tasks to prevent blocking the UI thread
+    setTimeout(() => {
+        updateUI(); // Keep stats in sync
+        save();     // Persist (debounced)
+    }, 10);
 }
 
 // --- UI Rendering ---
@@ -736,7 +777,7 @@ function updateUI() {
     try {
         const dStr = state.filterDate;    // Display Date
         const displayDateEl = document.getElementById('currentDateDisplay');
-        if (displayDateEl) displayDateEl.innerText = "Bugun: " + formatDateForUI(state.filterDate);
+        if (displayDateEl) displayDateEl.innerText = "Бугун: " + formatDateForUI(state.filterDate);
 
         // Update Notepad Ref if open
         const notepadField = document.getElementById('notepadTextarea');
@@ -763,7 +804,7 @@ function updateUI() {
             // Foyda balans faqat ko'payadi, u kamaymaydi. Oylik to'langanda u xarajatdan (chiqimdan) minus qilinadi, foyda balans esa o'zgarmaydi.
 
             let dRev = dayData.sales.reduce((a, b) => a + (b.qty * b.price), 0);
-            balEl.innerText = dRev.toLocaleString() + " So'm";
+            balEl.innerText = dRev.toLocaleString() + " Сўм";
             balEl.className = 'stat-value positive';
         }
 
@@ -784,30 +825,34 @@ function updateUI() {
         let dTotalExp = dProdMatExp + paidSalAmount;
         let dProfit = dRev - dTotalExp;
 
-        document.getElementById('todaySalesCount').innerText = dayData.sales.reduce((a, b) => a + b.qty, 0) + " dona";
-        document.getElementById('todayExpense').innerText = dTotalExp.toLocaleString() + " So'm";
-        document.getElementById('avgMargin').innerText = dProfit.toLocaleString() + " So'm";
+        document.getElementById('todaySalesCount').innerText = dayData.sales.reduce((a, b) => a + b.qty, 0) + " дона";
+        document.getElementById('todayExpense').innerText = dTotalExp.toLocaleString() + " Сўм";
+        document.getElementById('avgMargin').innerText = dProfit.toLocaleString() + " Сўм";
 
         // Selects
         const saleProdSelect = document.getElementById('saleProduct');
         if (saleProdSelect) {
-            saleProdSelect.innerHTML = (state.products || []).filter(p => p.qty > 0).map(p => `<option value="${p.name}">${p.name} (${p.qty} dona)</option>`).join('');
+            const currentSaleVal = saleProdSelect.value;
+            saleProdSelect.innerHTML = (state.products || []).filter(p => p.qty > 0).map(p => {
+                const isSelected = p.name === currentSaleVal ? 'selected' : '';
+                return `<option value="${p.name}" ${isSelected}>${p.name} (${p.qty} дона)</option>`;
+            }).join('');
         }
 
 
         // Sidebar Reports
         const prodRep = document.getElementById('productionReportItems');
-        if (prodRep) prodRep.innerHTML = safeProd.map(p => `<div class="report-item"><span>${p.name} (x${p.qty})</span> <span>-${(p.matCost || 0).toLocaleString()}</span></div>`).join('') || '<p style="font-size:0.8rem; opacity:0.6;">Yo\'q</p>';
+        if (prodRep) prodRep.innerHTML = safeProd.map(p => `<div class="report-item"><span>${p.name} (x${p.qty})</span> <span>-${(p.matCost || 0).toLocaleString()}</span></div>`).join('') || '<p style="font-size:0.8rem; opacity:0.6;">Йўқ</p>';
 
         const salesRep = document.getElementById('salesReportItems');
-        if (salesRep) salesRep.innerHTML = safeSales.map(s => `<div class="report-item"><span>${s.name} (x${s.qty})</span> <span>+${(s.qty * s.price).toLocaleString()}</span></div>`).join('') || '<p style="font-size:0.8rem; opacity:0.6;">Yo\'q</p>';
+        if (salesRep) salesRep.innerHTML = safeSales.map(s => `<div class="report-item"><span>${s.name} (x${s.qty})</span> <span>+${(s.qty * s.price).toLocaleString()}</span></div>`).join('') || '<p style="font-size:0.8rem; opacity:0.6;">Йўқ</p>';
 
         // Sidebar Salaries %
         const salRep = document.getElementById('salariesBriefReport');
         if (salRep) {
             salRep.innerHTML = `
-            <div class="report-item"><span>To'langan:</span> <b>${paidSalAmount.toLocaleString()}</b></div>
-            <div class="report-item"><span>Progress:</span> <b class="${salaryPercent === 100 ? 'positive' : ''}">${salaryPercent}%</b></div>
+            <div class="report-item"><span>Тўланган:</span> <b>${paidSalAmount.toLocaleString()}</b></div>
+            <div class="report-item"><span>Прогресс:</span> <b class="${salaryPercent === 100 ? 'positive' : ''}">${salaryPercent}%</b></div>
         `;
         }
 
@@ -832,8 +877,8 @@ function updateUI() {
                     return `
                     <div class="inventory-item">
                         <div class="inventory-item-details">
-                            <span>${p.name} <span class="item-badge ${p.qty > 5 ? 'badge-ok' : 'badge-low'}">${p.qty} dona</span></span>
-                            <span class="inventory-item-cost">Donasi: ${(p.costPrice || 0).toLocaleString()} | Jami: ${itemTotal.toLocaleString()} So'm</span>
+                            <span>${p.name} <span class="item-badge ${p.qty > 5 ? 'badge-ok' : 'badge-low'}">${p.qty} дона</span></span>
+                            <span class="inventory-item-cost">Донаси: ${(p.costPrice || 0).toLocaleString()} | Жами: ${itemTotal.toLocaleString()} Сўм</span>
                         </div>
                         <button class="delete-icon-btn" onclick="deleteSkladItem('product', '${p.id}')">🗑️</button>
                     </div>
@@ -841,25 +886,25 @@ function updateUI() {
                 }).join('') || `
                 <div class="empty-state">
                     <p style="font-size: 1.2rem; margin-bottom: 0.5rem;">✨</p>
-                    <p>"${searchTerm}" bo'yicha hech narsa topilmadi</p>
+                    <p>"${searchTerm}" бўйича ҳеч нарса топилмади</p>
                 </div>
             `;
 
                 if (skladBanner) {
                     skladBanner.style.display = 'flex';
-                    skladTotalValueEl.innerText = totalSkladValue.toLocaleString() + " So'm";
+                    skladTotalValueEl.innerText = totalSkladValue.toLocaleString() + " Сўм";
                 }
             } else {
                 const filteredMaterials = (state.materials || []).filter(m => m.name.toLowerCase().includes(searchTerm));
                 skladList.innerHTML = filteredMaterials.map((m) => `
                 <div class="inventory-item">
-                    <span>${m.name} <span class="item-badge ${m.stock > 10 ? 'badge-ok' : 'badge-low'}">${m.stock} m</span></span>
+                    <span>${m.name} <span class="item-badge ${m.stock > 10 ? 'badge-ok' : 'badge-low'}">${m.stock} м</span></span>
                     <button class="delete-icon-btn" onclick="deleteSkladItem('material', '${m.id}')">🗑️</button>
                 </div>
             `).join('') || `
                 <div class="empty-state">
                     <p style="font-size: 1.2rem; margin-bottom: 0.5rem;">📦</p>
-                    <p>Bunday material mavjud emas</p>
+                    <p>Бундай материал мавжуд эмас</p>
                 </div>
             `;
 
@@ -871,7 +916,7 @@ function updateUI() {
         // Refresh Production Selects if any are open
         document.querySelectorAll('.row-mat-id').forEach(select => {
             const currentVal = select.value;
-            select.innerHTML = (state.materials || []).map(m => `<option value="${m.id}" ${m.id === currentVal ? 'selected' : ''}>${m.name} (${m.stock}m)</option>`).join('');
+            select.innerHTML = (state.materials || []).map(m => `<option value="${m.id}" ${m.id === currentVal ? 'selected' : ''}>${m.name} (${m.stock}м)</option>`).join('');
         });
 
         // Workers & History
@@ -899,8 +944,8 @@ function calculateSalaries(dayData) {
                 if (!w) return;
                 tasks.push({
                     id: `${prodId}_${wIdx}`,
-                    name: w.name || 'Noma\'lum',
-                    itemName: prod.name || 'Mahsulot',
+                    name: w.name || 'Номаълум',
+                    itemName: prod.name || 'Маҳсулот',
                     qty: w.qty || 0,
                     price: w.price || 0,
                     total: (w.qty || 0) * (w.price || 0)
@@ -927,12 +972,12 @@ function renderDailySalaries() {
                     <p>${task.itemName} (x${task.qty})</p>
                 </div>
                 <div style="display:flex; align-items:center; gap:10px;">
-                    <div class="salary-amount">${task.total.toLocaleString()} So'm</div>
+                    <div class="salary-amount">${task.total.toLocaleString()} Сўм</div>
                     ${!isPaid ? `<button class="check-btn" onclick="toggleSalaryPayment('${task.id}')">✓</button>` : ''}
                 </div>
             </div>
         `;
-    }).join('') || '<p style="text-align:center; color:gray;">Bugun maoshlar yo\'q</p>';
+    }).join('') || '<p style="text-align:center; color:gray;">Бугун маошлар йўқ</p>';
 }
 
 function renderOjidaniya() {
@@ -950,13 +995,13 @@ function renderOjidaniya() {
                 <div style="display:flex; align-items:center; gap:20px;">
                     <div class="ojidaniya-days">
                         <span class="days-count">${days}</span>
-                        <span class="days-label">kun o'tdi</span>
+                        <span class="days-label">кун ўтди</span>
                     </div>
                     <button class="check-btn" onclick="deletePendingWork(${p.id})" title="Bajarildi">✓</button>
                 </div>
             </div>
         `;
-    }).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Kutishdagi ishlar hozircha yo\'q</p>';
+    }).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Кутишдаги ишлар ҳозирча йўқ</p>';
 
     // Update Badge
     const badge = document.getElementById('ojidaniyaBadge');
@@ -982,27 +1027,27 @@ function renderDetailedHistory() {
         const prodData = dayData.production || [];
         container.innerHTML = prodData.map(p => `
             <div class="history-card">
-                <div class="history-header"><h4>${p.name || 'Nomsiz'}</h4> <span>${p.time || ''}</span></div>
+                <div class="history-header"><h4>${p.name || 'Номсиз'}</h4> <span>${p.time || ''}</span></div>
                 <div class="history-details">
-                    <div class="history-sub-item"><span>Umumiy soni:</span> <b>${p.qty || 0} dona</b></div>
-                    <div class="history-sub-item"><span>Ishchilar:</span> <b>${(p.workers || []).map(w => w.name).join(', ')}</b></div>
-                    <div class="history-sub-item"><span>Jami xarajat:</span> <b>${(p.totalExp || 0).toLocaleString()} So'm</b></div>
+                    <div class="history-sub-item"><span>Умумий сони:</span> <b>${p.qty || 0} дона</b></div>
+                    <div class="history-sub-item"><span>Ишчилар:</span> <b>${(p.workers || []).map(w => w.name).join(', ')}</b></div>
+                    <div class="history-sub-item"><span>Жами харажат:</span> <b>${(p.totalExp || 0).toLocaleString()} Сўм</b></div>
                 </div>
             </div>
-        `).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Ishlab chiqarish tarixi bo\'sh</p>';
+        `).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Ишлаб чиқариш тарихи бўш</p>';
     } else if (state.currentHistoryTab === 'sales_hist') {
         // Strictly SALES ONLY
         const salesData = dayData.sales || [];
         container.innerHTML = salesData.map(s => `
             <div class="history-card">
-                <div class="history-header"><h4>${s.name || 'Nomsiz'}</h4> <span>${s.time || ''}</span></div>
+                <div class="history-header"><h4>${s.name || 'Номсиз'}</h4> <span>${s.time || ''}</span></div>
                 <div class="history-details">
-                    <div class="history-sub-item"><span>Sotildi:</span> <b>${s.qty || 0} dona</b></div>
-                    <div class="history-sub-item"><span>Narxi:</span> <b>${(s.price || 0).toLocaleString()} So'm</b></div>
-                    <div class="history-sub-item"><span>Sof foyda:</span> <b style="color:var(--accent-emerald)">${(s.profit || 0).toLocaleString()} So'm</b></div>
+                    <div class="history-sub-item"><span>Сотилди:</span> <b>${s.qty || 0} дона</b></div>
+                    <div class="history-sub-item"><span>Нархи:</span> <b>${(s.price || 0).toLocaleString()} Сўм</b></div>
+                    <div class="history-sub-item"><span>Соф фойда:</span> <b style="color:var(--accent-emerald)">${(s.profit || 0).toLocaleString()} Сўм</b></div>
                 </div>
             </div>
-        `).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Sotuvlar tarixi bo\'sh</p>';
+        `).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Сотувлар тарихи бўш</p>';
     } else if (state.currentHistoryTab === 'worker_hist') {
         const workerSearch = (document.getElementById('workerHistorySearch')?.value || "").toLowerCase().trim();
         let html = '';
@@ -1014,13 +1059,13 @@ function renderDetailedHistory() {
                 </div>
                 <div class="history-details">
                      <p style="font-size:0.95rem; line-height:1.5; color:rgba(255,255,255,0.9); margin-bottom:10px;">
-                        <b>Ishchilar va ularning hissasi:</b>
+                        <b>Ишчилар ва уларнинг ҳиссаси:</b>
                      </p>
                      ${t.sharedWorkers.map(w => `
                         <div style="background:rgba(255,255,255,0.05); padding:8px; border-radius:8px; margin-bottom:5px; font-size:0.85rem;">
-                            <b>${w.name}</b> ${w.qty} dona tikdi. 
-                            Har biri uchun ${(w.price || 0).toLocaleString()} So'mdan, 
-                            jami <b>${(w.qty * w.price).toLocaleString()} So'm</b>.
+                            <b>${w.name}</b> ${w.qty} дона тикди. 
+                            Ҳар бири учун ${(w.price || 0).toLocaleString()} Сўмдан, 
+                            жами <b>${(w.qty * w.price).toLocaleString()} Сўм</b>.
                         </div>
                      `).join('')}
                 </div>
@@ -1046,7 +1091,7 @@ function renderDetailedHistory() {
             html = currentDayProds.map(prod => {
                 const isPaid = (dayData.paidWorkers || []).some(id => id.startsWith(prod.id));
                 return renderWorkerCard({ itemName: prod.name, sharedWorkers: prod.workers }, dStr, isPaid);
-            }).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Bugun ishchilar faoliyati yo\'q</p>';
+            }).join('') || '<p style="text-align:center; color:gray; padding:2rem;">Бугун ишчилар фаолияти йўқ</p>';
         }
         container.innerHTML = html;
     }
@@ -1082,7 +1127,7 @@ function updateDatePicker() {
 
     // Update Header Text
     if (headerDate) {
-        headerDate.innerText = `Sana: ${formatDateForUI(state.filterDate)}`;
+        headerDate.innerText = `Сана: ${formatDateForUI(state.filterDate)}`;
     }
 }
 
@@ -1096,15 +1141,15 @@ async function checkBackendConnection() {
         const res = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(10000) });
         const data = await res.json();
         if (data.database === 'connected') {
-            el.innerHTML = '<span style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></span> Bulut bilan ulangan 🍃';
+            el.innerHTML = '<span style="width: 8px; height: 8px; background: #10b981; border-radius: 50%;"></span> Булут билан уланган 🍃';
             el.style.color = '#10b981';
             isSynced = true;
         } else {
-            el.innerHTML = '<span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> Baza ulanmoqda...';
+            el.innerHTML = '<span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> База уланмоқда...';
             el.style.color = '#f59e0b';
         }
     } catch (e) {
-        el.innerHTML = '<span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> Server uyg\'onmoqda...';
+        el.innerHTML = '<span style="width: 8px; height: 8px; background: #f59e0b; border-radius: 50%;"></span> Сервер уйғонмоқда...';
         el.style.color = '#f59e0b';
     }
 }
@@ -1163,7 +1208,7 @@ async function exportToExcel() {
     const chart = new Chart(ctx, {
         type: 'pie',
         data: {
-            labels: ['Mato Xarajati', 'To\'langan Maosh', 'Sof Foyda'],
+            labels: ['Мато Харажати', 'Тўланган Маош', 'Соф Фойда'],
             datasets: [{
                 data: [matExp, paidSalAmount, netProfit > 0 ? netProfit : 0],
                 backgroundColor: ['#ef4444', '#f59e0b', '#10b981'],
@@ -1174,7 +1219,7 @@ async function exportToExcel() {
             responsive: false,
             animation: false,
             plugins: {
-                title: { display: true, text: `Moliyaviy Holat (${dStr})`, font: { size: 18 } },
+                title: { display: true, text: `Молиявий Ҳолат (${dStr})`, font: { size: 18 } },
                 legend: { position: 'bottom' }
             }
         }
@@ -1222,17 +1267,17 @@ async function exportToExcel() {
 
     dashSheet.mergeCells('B2:C2');
     const titleCell = dashSheet.getCell('B2');
-    titleCell.value = `KUNLIK HISOBOT: ${dStr}`;
+    titleCell.value = `КУНЛИК ҲИСОБОТ: ${dStr}`;
     titleCell.font = { name: 'Arial Black', size: 16, color: { argb: 'FF1F2937' } };
     titleCell.alignment = { horizontal: 'center' };
 
     const summaryData = [
-        ['Ko\'rsatkich', 'Qiymat'],
-        ['Umumiy Kirim (Sotuv)', revenue],
-        ['Mato Xarajatlari', matExp],
-        ['To\'langan Maoshlar', paidSalAmount],
-        ['Jami Chiqim', totalExp],
-        ['Sof Foyda', netProfit]
+        ['Кўрсаткич', 'Қиймат'],
+        ['Умумий Кирим (Сотув)', revenue],
+        ['Мато Харажатлари', matExp],
+        ['Тўланган Маошлар', paidSalAmount],
+        ['Жами Чиқим', totalExp],
+        ['Соф Фойда', netProfit]
     ];
 
     dashSheet.addRows(new Array(3).fill([])); // Spacing
@@ -1245,8 +1290,8 @@ async function exportToExcel() {
             cell1.fill = cell2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
             cell1.font = cell2.font = { color: { argb: 'FFFFFFFF' }, bold: true, name: 'Segoe UI' };
         } else {
-            cell2.numFmt = '#,##0 "So\'m"';
-            if (row[0] === 'Sof Foyda') {
+            cell2.numFmt = '#,##0 "Сўм"';
+            if (row[0] === 'Соф Фойда') {
                 cell2.font = { bold: true, color: { argb: netProfit >= 0 ? 'FF10B981' : 'FFEF4444' } };
             }
         }
@@ -1264,15 +1309,15 @@ async function exportToExcel() {
     });
 
     // --- SHEET 2: SALES ---
-    const salesSheet = workbook.addWorksheet('Sotuvlar');
+    const salesSheet = workbook.addWorksheet('Сотувлар');
     salesSheet.columns = [
-        { header: 'Vaqt', key: 'time', width: 12 },
-        { header: 'Nomi', key: 'name', width: 25 },
-        { header: 'Soni', key: 'qty', width: 10 },
-        { header: 'Narxi (dona)', key: 'price', width: 20 },
-        { header: 'Jami Summa', key: 'total', width: 20 }
+        { header: 'Вақт', key: 'time', width: 12 },
+        { header: 'Номи', key: 'name', width: 25 },
+        { header: 'Сони', key: 'qty', width: 10 },
+        { header: 'Нархи (дона)', key: 'price', width: 20 },
+        { header: 'Жами Сумма', key: 'total', width: 20 }
     ];
-    const fmt = (val) => Number(val).toLocaleString() + " So'm";
+    const fmt = (val) => Number(val).toLocaleString() + " Сўм";
 
     dayData.sales.forEach(s => {
         salesSheet.addRow({
@@ -1285,15 +1330,15 @@ async function exportToExcel() {
     applyPremiumStyle(salesSheet);
 
     // --- SHEET 3: PRODUCTION ---
-    const prodSheet = workbook.addWorksheet('Ishlab Chiqarish');
+    const prodSheet = workbook.addWorksheet('Ишлаб Чиқариш');
     prodSheet.columns = [
-        { header: 'Mahsulot', key: 'name', width: 25 },
-        { header: 'Soni', key: 'qty', width: 10 },
-        { header: 'Mato Xarajati', key: 'mat', width: 20 },
-        { header: 'Ishchilar', key: 'workersNames', width: 30 },
-        { header: '1 dona uchun', key: 'rate', width: 15 },
-        { header: 'Ishchi Xaqqi', key: 'labor', width: 20 },
-        { header: 'Jami Xarajat', key: 'total', width: 20 }
+        { header: 'Маҳсулот', key: 'name', width: 25 },
+        { header: 'Сони', key: 'qty', width: 10 },
+        { header: 'Мато Харажати', key: 'mat', width: 20 },
+        { header: 'Ишчилар', key: 'workersNames', width: 30 },
+        { header: '1 дона учун', key: 'rate', width: 15 },
+        { header: 'Ишчи Ҳаққи', key: 'labor', width: 20 },
+        { header: 'Жами Харажат', key: 'total', width: 20 }
     ];
     dayData.production.forEach(p => {
         const workers = p.workers || [];
@@ -1346,8 +1391,8 @@ async function exportToExcel() {
     // 4. Save File
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    saveAs(blob, `Calibri_Report_${dStr.replaceAll('-', '_')}.xlsx`);
-    console.log("Excel export success!");
+    saveAs(blob, `Calibri_Hisobot_${dStr.replaceAll('-', '_')}.xlsx`);
+    console.log("Excel export муваффақиятли якунланди!");
 }
 
 // --- Ultra-Premium Security Phase ---
@@ -1366,7 +1411,7 @@ function initAiChat() {
         aiMessages = [...state.aiMessages];
     } else {
         aiMessages = [
-            { role: 'bot', text: 'Salom! Men sizning aqlli yordamchingizman. Sklad, ojidaniya yoki buyurtmalar haqida so\'rashingiz mumkin.' }
+            { role: 'bot', text: 'Салом! Мен сизнинг ақлли ёрдамчингизман. Склад, кутилаётганлар ёки буюртмалар ҳақида сўрашингиз мумкин.' }
         ];
     }
 }
@@ -1437,39 +1482,39 @@ function generateAiResponse(query) {
     const pendingCount = state.pendingWork.length;
 
     // Greeting & Identity
-    if (q.includes('salom') || q.includes('assalom')) return "Salom! Men Calibri Super-AI tizimiman. Sizning biznesingizni 24/7 nazorat qilyapman. Qanday professional yordam bera olaman?";
-    if (q.includes('kimsa') || q.includes('ismin')) return "Men Calibri ERP tizimining 'Super-Intelligence' yadrosiman. Mening IQ darajam istalgan murakkab savollarga javob berishga yetadi.";
+    if (q.includes('салом') || q.includes('ассалом')) return "Салом! Мен Calibri Super-AI тизимиман. Сизнинг бизнесингизни 24/7 назорат қиляпман. Қандай профессионал ёрдам бера оламан?";
+    if (q.includes('кимса') || q.includes('исмин')) return "Мен Calibri ERP тизимининг 'Super-Intelligence' ядросиман. Менинг IQ даражам исталган мураккаб саволларга жавоб беришга етади.";
 
     // Analytical Mode
-    if (q.includes('maslahat') || q.includes('tahlil') || q.includes('holat')) {
-        let advice = `Hozirgi holat tahlili:\n1. Balansingiz: ${revenue.toLocaleString()} So'm. `;
-        if (revenue < 1000000) advice += "Sotuvlarni jadallashtirishni maslahat beraman.\n";
-        else advice += "Moliya holati barqaror.\n";
+    if (q.includes('маслаҳат') || q.includes('таҳлил') || q.includes('ҳолат')) {
+        let advice = `Ҳозирги ҳолат таҳлили:\n1. Балансингиз: ${revenue.toLocaleString()} Сўм. `;
+        if (revenue < 1000000) advice += "Сотувларни жадаллаштиришни маслаҳат бераман.\n";
+        else advice += "Молия ҳолати барқарор.\n";
 
-        advice += `2. Ombor: ${inventoryCount} turdagi tovar bor. `;
-        if (inventoryCount < 3) advice += "Assortimentni ko'paytirish zarur.\n";
+        advice += `2. Омбор: ${inventoryCount} турдаги товар бор. `;
+        if (inventoryCount < 3) advice += "Ассортиментни кўпайтириш зарур.\n";
 
-        advice += `3. Ojidaniya: ${pendingCount} ta ish kutilmoqda. `;
-        if (pendingCount > 5) advice += "Ishchilarni tezlashtirish kerak, yuklama ko'p.";
+        advice += `3. Кутилаётганлар: ${pendingCount} та иш кутилмоқда. `;
+        if (pendingCount > 5) advice += "Ишчиларни тезлаштириш керак, юклама кўп.";
 
         return advice;
     }
 
     // ERP Specifics
-    if (q.includes('sklad') || q.includes('tovar')) {
+    if (q.includes('склад') || q.includes('товар')) {
         const totalItems = state.products.reduce((a, b) => a + b.qty, 0);
-        return `Skladda hozirda ${inventoryCount} turdagi, jami ${totalItems} dona tayyor mahsulot bor. `;
+        return `Складда ҳозирда ${inventoryCount} турдаги, жами ${totalItems} дона тайёр маҳсулот бор. `;
     }
 
-    if (q.includes('balans') || q.includes('pul')) return `Hozirgi jami balansingiz: ${revenue.toLocaleString()} So'm. `;
+    if (q.includes('баланс') || q.includes('пул')) return `Ҳозирги жами балансингиз: ${revenue.toLocaleString()} Сўм. `;
 
     // General Knowledge / High Intelligence
-    if (q.includes('nima qila olasan') || q.includes('vazifang')) {
-        return "Men quyidagilarni qila olaman:\n- Biznesingizni sekundiga tahlil qilish.\n- Moliyaviy maslahatlar berish.\n- Har qanday umumiy savollarga (fan, texnika, hayot) javob berish.\n- Strategik rejalashtirishda yordam berish.";
+    if (q.includes('нима қила оласан') || q.includes('вазифанг')) {
+        return "Мен қуйидагиларни қила оламан:\n- Бизнесингизни сониясига таҳлил қилиш.\n- Молиявий маслаҳатлар бериш.\n- Ҳар қандай умумий саволларга (фан, техника, ҳаёт) жавоб бериш.\n- Стратегик режалаштиришда ёрдам бериш.";
     }
 
     // Default High-IQ Response
-    return "Tushundim. Bu masala bo'yicha tahlil o'tkazdim. Fikrimcha, biznesingizdagi har bir detalga e'tiborli bo'lishingiz kerak. Agar aniqroq savol bersangiz, chuqurroq tahlil qilib beraman. Men sizga nafaqat bu dasturda, balki hayotiy va biznes strategiyalarida ham yordam bera olaman.";
+    return "Тушундим. Бу масала бўйича таҳлил ўтказдим. Фикримча, бизнесингиздаги ҳар бир деталга эътиборли бўлишингиз керак. Агар аниқроқ савол берсангиз, чуқурроқ таҳлил қилиб бераман. Мен сизга нафақат бу дастурда, балки ҳаётий ва бизнес стратегияларида ҳам ёрдам бера оламан.";
 }
 
 function toggleNotepad() {
@@ -1499,16 +1544,16 @@ function exportSystemBackup() {
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
-    alert("Tizimning to'liq nusxasi (Backup) yuklab olindi! 💾");
+    alert("Тизимнинг тўлиқ нусхаси (Backup) юклаб олинди! 💾");
 }
 
 function resetEntireDatabase() {
     checkSecurity(() => {
-        if (confirm("DIQQAT! Barcha ma'lumotlar butunlay o'chib ketadi. Rozimisiz?")) {
+        if (confirm("ДИҚҚАТ! Барча маълумотлар бутунлай ўчиб кетади. Розимисиз?")) {
             state = JSON.parse(JSON.stringify(DEFAULT_STATE));
             save();
             updateUI();
-            alert("Baza butunlay tozalandi! 🧹");
+            alert("База бутунлай тозаланди! 🧹");
         }
     });
 }
@@ -1523,7 +1568,7 @@ function deleteCurrentDate() {
     const dStr = state.filterDate;
     if (!dStr) return;
 
-    if (confirm(`Haqiqatdan ham ${formatDateForUI(dStr)} sanasini o'chirib yubormoqchimisiz?`)) {
+    if (confirm(`Ҳақиқатдан ҳам ${formatDateForUI(dStr)} санасини ўчириб юбормоқчимисиз?`)) {
         if (!state.history[dStr]) state.history[dStr] = { production: [], sales: [] };
         state.history[dStr].deleted = true;
 
@@ -1532,8 +1577,8 @@ function deleteCurrentDate() {
         state.filterDate = remainingDates[0] || getTodayStr();
 
         updateUI();
-        save();
-        alert("Sana o'chirildi va savatchaga o'tkazildi.");
+        save(true); // IMMEDIATE SYNC for deletions
+        alert("Сана ўчирилди ва саватчага ўтказилди.");
     }
 }
 
@@ -1553,11 +1598,11 @@ function openRecycleBin() {
                 </p>
             </div>
             <div style="display:flex; gap:10px;">
-                <button class="check-btn" onclick="restoreDate('${d}')" title="Qayta tiklash" style="background:#10b981;">✓</button>
-                <button class="check-btn" onclick="permanentlyDeleteDate('${d}')" title="Butunlay o'chirish" style="background:#f43f5e;">🗑️</button>
+                <button class="check-btn" onclick="restoreDate('${d}')" title="Қайта тиклаш" style="background:#10b981;">✓</button>
+                <button class="check-btn" onclick="permanentlyDeleteDate('${d}')" title="Бутунлай ўчириш" style="background:#f43f5e;">🗑️</button>
             </div>
         </div>
-    `).join('') || '<p style="text-align:center; color:gray; padding:1rem;">O\'chirilgan sanalar yo\'q</p>';
+    `).join('') || '<p style="text-align:center; color:gray; padding:1rem;">Ўчирилган саналар йўқ</p>';
 
     modal.style.display = 'flex';
 }
@@ -1571,21 +1616,41 @@ function restoreDate(dStr) {
         state.history[dStr].deleted = false;
         state.filterDate = dStr;
         updateUI();
-        save();
+        save(true); // IMMEDIATE SYNC for restores
         closeRecycleBin();
-        alert("Sana muvaffaqiyatli tiklandi.");
+        alert("Сана муваффақиятли тикланди.");
     }
 }
 
-function permanentlyDeleteDate(dStr) {
-    secureDelete(() => {
-        if (confirm(`${formatDateForUI(dStr)} sanasini BUTUNLAY o'chirib yubormoqchimisiz? Bu amalni ortga qaytarib bo'lmaydi!`)) {
-            delete state.history[dStr];
-            updateUI();
-            save();
-            openRecycleBin(); // Refresh list
+async function permanentlyDeleteDate(dStr) {
+    if (confirm(`${formatDateForUI(dStr)} санасини БУТУНЛАЙ ўчириб юбормоқчимисиз? Бу амални ортга қайтариб бўлмайди!`)) {
+        try {
+            isSyncLocked = true; // LOCK SYNC
+            const syncStatus = document.getElementById('syncStatus');
+            if (syncStatus) syncStatus.innerHTML = 'Ўчирилмоқда...';
+
+            const response = await fetch(`${API_URL}/history/${dStr}`, {
+                method: 'DELETE'
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                delete state.history[dStr];
+                localStorage.setItem('calibri_erp_state', JSON.stringify(state));
+                updateUI();
+                openRecycleBin(); // Refresh list
+                alert("Сана бутунлай ўчирилди.");
+            } else {
+                alert("Хатолик: " + (result.message || "Ўчиришда муаммо юз берди."));
+            }
+        } catch (err) {
+            console.error("Delete Error:", err);
+            alert("Сервер билан боғланишда хатолик юз берди.");
+        } finally {
+            isSyncLocked = false; // UNLOCK
         }
-    });
+    }
 }
 
 // Init
